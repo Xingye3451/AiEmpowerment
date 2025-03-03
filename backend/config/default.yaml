@@ -1,0 +1,28 @@
+project:
+  name: "AiEmpowerment"
+  api_prefix: "/api/v1"
+
+security:
+  secret_key: "your-secret-key-here"
+  algorithm: "HS256"
+  access_token_expire_minutes: 30
+  admin_token_expire_minutes: 120  # 管理员token有效期更长
+
+database:
+  type: "sqlite"
+  file: "app.db"
+
+upload:
+  dir: "uploads/videos"
+  preview_dir: "static/previews"
+  max_size: 104857600  # 100MB
+
+douyin:
+  api_timeout: 30
+  max_retry_count: 3
+  retry_delay: [60, 300, 900]  # 重试延迟：1分钟、5分钟、15分钟
+
+ai_services:
+  runway_api_key: ""  # 填入你的 Runway API key
+  coqui_api_key: ""   # 填入你的 Coqui API key
+  sadtalker_api_key: "" # 填入你的 SadTalker API key

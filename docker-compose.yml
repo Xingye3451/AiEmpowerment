@@ -1,0 +1,27 @@
+services:
+  backend:
+    build: ./backend
+    container_name: aiempowerment-backend
+    volumes:
+      - ./backend/app.db:/app/app.db
+      - ./backend/config:/app/config  # 挂载配置目录
+      - ./backend/uploads:/app/uploads  # 挂载上传目录
+      - ./backend/static:/app/static  # 挂载静态文件目录
+    environment:
+      - CONFIG_FILE=/app/config/default.yaml  # 指定配置文件路径
+      - SECRET_KEY=your-secret-key-here  # 在生产环境中应该使用更安全的方式
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build: ./frontend
+    container_name: aiempowerment-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
