@@ -36,6 +36,10 @@ const Dashboard: React.FC = () => {
     fetchUserData();
   }, [navigate]);
 
+  const handleComponentChange = (component: 'douyin' | 'ai') => {
+    setActiveComponent(component);
+  };
+
   return (
     <Container component="main" maxWidth="lg">
       <Paper elevation={3} sx={{ p: 4, mt: 8 }}>
@@ -57,7 +61,7 @@ const Dashboard: React.FC = () => {
             <Grid item>
               <Button
                 variant={activeComponent === 'douyin' ? 'contained' : 'outlined'}
-                onClick={() => setActiveComponent('douyin')}
+                onClick={() => handleComponentChange('douyin')}
               >
                 抖音管理
               </Button>
@@ -65,7 +69,7 @@ const Dashboard: React.FC = () => {
             <Grid item>
               <Button
                 variant={activeComponent === 'ai' ? 'contained' : 'outlined'}
-                onClick={() => setActiveComponent('ai')}
+                onClick={() => handleComponentChange('ai')}
               >
                 AI视频处理
               </Button>

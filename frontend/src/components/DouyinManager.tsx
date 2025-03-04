@@ -416,6 +416,7 @@ const DouyinManager: React.FC = () => {
           variant="scrollable"
           value={currentTab}
           onChange={handleTabChange}
+          aria-label="管理导航"
           sx={{
             '& .MuiTab-root': {
               minHeight: 48,
@@ -425,10 +426,10 @@ const DouyinManager: React.FC = () => {
             },
           }}
         >
-          <Tab label="发布管理" />
-          <Tab label="账号分组" />
-          <Tab label="发布历史" />
-          <Tab label="统计分析" />
+          <Tab label="发布管理" value={0} />
+          <Tab label="账号分组" value={1} />
+          <Tab label="发布历史" value={2} />
+          <Tab label="统计分析" value={3} />
         </Tabs>
       </Box>
 
