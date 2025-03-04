@@ -12,10 +12,11 @@ app = FastAPI(title=settings.PROJECT_NAME)
 # 配置CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 在生产环境中应该设置具体的域名
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],  # 允许的前端域名
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # 创建必要的目录

@@ -41,6 +41,7 @@ import VideoPreview from './VideoPreview';
 import AccountGroups from './AccountGroups';
 import SchedulePost from './SchedulePost';
 import PublishStats from './PublishStats';
+import { DOUYIN_API } from '../config/api';
 
 interface DouyinAccount {
   username: string;
@@ -68,16 +69,6 @@ interface Group {
   name: string;
   accounts: string[];
 }
-
-const DOUYIN_API = {
-  UPLOAD_VIDEO: '/api/v1/douyin/upload-video',
-  BATCH_LOGIN: '/api/v1/douyin/batch-login',
-  BATCH_POST: '/api/v1/douyin/batch-post',
-  TASK: (taskId: string) => `/api/v1/douyin/task/${taskId}`,
-  TASKS: '/api/v1/douyin/tasks',
-  GROUPS: '/api/v1/douyin/groups',
-  HISTORY: '/api/v1/douyin/history',
-};
 
 const DouyinManager: React.FC = () => {
   const theme = useTheme();
@@ -107,7 +98,12 @@ const DouyinManager: React.FC = () => {
   useEffect(() => {
     const fetchTasks = async () => {
       try {
-        const response = await axios.get(DOUYIN_API.TASKS);
+        const token = localStorage.getItem('token');
+        const response = await axios.get(DOUYIN_API.TASKS, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
         setTasks(response.data);
       } catch (error) {
         console.error('Failed to fetch tasks:', error);
@@ -158,7 +154,12 @@ const DouyinManager: React.FC = () => {
 
   const fetchGroups = async () => {
     try {
-      const response = await axios.get(DOUYIN_API.GROUPS);
+      const token = localStorage.getItem('token');
+      const response = await axios.get(DOUYIN_API.GROUPS, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
       const groupsData = Object.entries(response.data).map(([id, data]: [string, any]) => ({
         id,
         ...data,
@@ -171,7 +172,12 @@ const DouyinManager: React.FC = () => {
 
   const fetchHistory = async () => {
     try {
-      const response = await axios.get(DOUYIN_API.HISTORY);
+      const token = localStorage.getItem('token');
+      const response = await axios.get(DOUYIN_API.HISTORY, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
       setHistory(response.data);
     } catch (error) {
       console.error('Failed to fetch history:', error);
@@ -237,9 +243,11 @@ const DouyinManager: React.FC = () => {
     }
 
     try {
+      const token = localStorage.getItem('token');
       const response = await axios.post(DOUYIN_API.UPLOAD_VIDEO, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
+          'Authorization': `Bearer ${token}`
         },
       });
 
@@ -264,8 +272,13 @@ const DouyinManager: React.FC = () => {
     }
 
     try {
+      const token = localStorage.getItem('token');
       const response = await axios.post(DOUYIN_API.BATCH_LOGIN, {
         accounts: accounts,
+      }, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
       });
       
       const results = response.data.results;
@@ -303,7 +316,12 @@ const DouyinManager: React.FC = () => {
     }
 
     try {
-      const response = await axios.post(DOUYIN_API.BATCH_POST, formData);
+      const token = localStorage.getItem('token');
+      const response = await axios.post(DOUYIN_API.BATCH_POST, formData, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
       setCurrentTaskId(response.data.task_id);
       setMessage({ type: 'success', content: '任务已添加到队列' });
     } catch (error: any) {

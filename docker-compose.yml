@@ -1,15 +1,25 @@
+version: '3.8'
+
 services:
   backend:
-    build: ./backend
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    image: aiempowerment-backend:latest
     container_name: aiempowerment-backend
+    init: true  # 使用 init 进程管理
+    stop_signal: SIGINT  # 使用 SIGINT 信号优雅停止
+    stop_grace_period: 10s  # 给予足够的停止时间
     volumes:
       - ./backend/app.db:/app/app.db
       - ./backend/config:/app/config
       - ./backend/uploads:/app/uploads
       - ./backend/static:/app/static
+      - ./backend/logs:/app/logs
     environment:
       - CONFIG_FILE=/app/config/default.yaml
       - SECRET_KEY=your-secret-key-here
+      - PYTHONUNBUFFERED=1
     ports:
       - "8000:8000"
     networks:
@@ -35,12 +45,14 @@ services:
     build: 
       context: ./frontend
       dockerfile: Dockerfile
-      args:
-        - REACT_APP_ENV=production
-        - REACT_APP_API_URL=/api/v1
+      cache_from:
+        - aiempowerment-frontend:latest
+    image: aiempowerment-frontend:latest
     container_name: aiempowerment-frontend
     volumes:
       - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./frontend/logs:/var/log/nginx
+      - backend-static:/app/static:ro
     ports:
       - "80:80"
     networks:
@@ -63,6 +75,47 @@ services:
       retries: 3
     depends_on:
       - backend
+
+  # 开发环境服务
+  frontend-dev:
+    build: 
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: aiempowerment-frontend-dev
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - REACT_APP_API_URL=http://localhost:8000/api/v1
+    networks:
+      - app-network
+    profiles:
+      - dev
+
+  backend-dev:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: aiempowerment-backend-dev
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - CONFIG_FILE=/app/config/default.yaml
+      - SECRET_KEY=your-secret-key-here
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+    networks:
+      - app-network
+    profiles:
+      - dev
+
+volumes:
+  backend-static:
 
 networks:
   app-network:

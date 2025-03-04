@@ -5,8 +5,7 @@ WORKDIR /app
 
 # 设置环境变量
 ENV NODE_ENV=production
-ENV REACT_APP_API_URL=/api
-ENV REACT_APP_BASE_URL=http://localhost
+ENV REACT_APP_API_URL=/api/v1
 
 # 设置 npm 使用阿里云镜像源
 RUN npm config set registry https://registry.npmmirror.com \
@@ -35,6 +34,9 @@ COPY --from=build /app/build /usr/share/nginx/html
 
 # 复制 Nginx 配置
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# 创建静态文件目录
+RUN mkdir -p /app/static
 
 # 添加健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
