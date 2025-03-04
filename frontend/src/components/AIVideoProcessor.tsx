@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Box,
   Button,
@@ -17,14 +17,28 @@ import {
   Zoom,
   IconButton,
   useTheme,
-  Divider
+  Divider,
+  FormGroup,
+  FormControlLabel,
+  Checkbox,
+  Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Stepper,
+  Step,
+  StepLabel,
+  Grid
 } from '@mui/material';
 import { 
   CloudUpload as CloudUploadIcon,
   Delete as DeleteIcon,
   CheckCircle as CheckCircleIcon,
   Error as ErrorIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  NavigateNext as NavigateNextIcon,
+  NavigateBefore as NavigateBeforeIcon
 } from '@mui/icons-material';
 import axios from 'axios';
 import { DOUYIN_API } from '../config/api';
@@ -37,17 +51,52 @@ interface ProcessingTask {
   progress?: number;
 }
 
+interface VideoPreview {
+  file: File;
+  previewUrl: string;
+  selectedArea?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+}
+
 const AIVideoProcessor: React.FC = () => {
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
   const [text, setText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingTasks, setProcessingTasks] = useState<ProcessingTask[]>([]);
   const [error, setError] = useState('');
+  const [removeSubtitles, setRemoveSubtitles] = useState(true);
+  const [generateSubtitles, setGenerateSubtitles] = useState(false);
+  const [videoPreviews, setVideoPreviews] = useState<VideoPreview[]>([]);
+  const [currentPreviewIndex, setCurrentPreviewIndex] = useState(0);
+  const [isAreaSelectionOpen, setIsAreaSelectionOpen] = useState(false);
+  const [selectionComplete, setSelectionComplete] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [startPos, setStartPos] = useState({ x: 0, y: 0 });
   const theme = useTheme();
+
+  // 生成视频预览
+  const generateVideoPreviews = async (files: FileList) => {
+    const previews: VideoPreview[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const previewUrl = URL.createObjectURL(file);
+      previews.push({ file, previewUrl });
+    }
+    setVideoPreviews(previews);
+    if (previews.length > 0) {
+      setIsAreaSelectionOpen(true);
+    }
+  };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) {
       setSelectedFiles(event.target.files);
+      generateVideoPreviews(event.target.files);
       setError('');
     }
   };
@@ -57,24 +106,90 @@ const AIVideoProcessor: React.FC = () => {
     setError('');
   };
 
-  const updateTaskStatus = async (tasks: ProcessingTask[]) => {
-    const updatedTasks = await Promise.all(
-      tasks.map(async (task) => {
-        try {
-          const response = await axios.get(DOUYIN_API.PROCESS_STATUS(task.task_id));
-          return {
-            ...task,
-            status: response.data.status,
-            progress: response.data.progress,
-          };
-        } catch (error) {
-          console.error(`Error updating task status: ${task.task_id}`, error);
-          return task;
-        }
-      })
-    );
-    setProcessingTasks(updatedTasks);
+  // 处理区域选择
+  const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    setIsDrawing(true);
+    setStartPos({ x, y });
   };
+
+  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDrawing || !canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    const ctx = canvasRef.current.getContext('2d');
+    if (!ctx) return;
+
+    // 清除之前的绘制
+    ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    
+    // 绘制视频帧
+    const video = document.createElement('video');
+    video.src = videoPreviews[currentPreviewIndex].previewUrl;
+    ctx.drawImage(video, 0, 0, canvasRef.current.width, canvasRef.current.height);
+    
+    // 绘制选择框
+    ctx.strokeStyle = '#00ff00';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(
+      startPos.x,
+      startPos.y,
+      x - startPos.x,
+      y - startPos.y
+    );
+  };
+
+  const handleCanvasMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDrawing || !canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    setIsDrawing(false);
+    
+    // 保存选择区域
+    const newPreviews = [...videoPreviews];
+    newPreviews[currentPreviewIndex].selectedArea = {
+      x: Math.min(startPos.x, x),
+      y: Math.min(startPos.y, y),
+      width: Math.abs(x - startPos.x),
+      height: Math.abs(y - startPos.y)
+    };
+    setVideoPreviews(newPreviews);
+  };
+
+  const handleNextVideo = () => {
+    if (currentPreviewIndex < videoPreviews.length - 1) {
+      setCurrentPreviewIndex(currentPreviewIndex + 1);
+    } else {
+      setIsAreaSelectionOpen(false);
+      setSelectionComplete(true);
+    }
+  };
+
+  const handlePrevVideo = () => {
+    if (currentPreviewIndex > 0) {
+      setCurrentPreviewIndex(currentPreviewIndex - 1);
+    }
+  };
+
+  useEffect(() => {
+    if (isAreaSelectionOpen && canvasRef.current) {
+      const video = document.createElement('video');
+      video.src = videoPreviews[currentPreviewIndex].previewUrl;
+      video.onloadeddata = () => {
+        if (!canvasRef.current) return;
+        const ctx = canvasRef.current.getContext('2d');
+        if (!ctx) return;
+        ctx.drawImage(video, 0, 0, canvasRef.current.width, canvasRef.current.height);
+      };
+    }
+  }, [currentPreviewIndex, isAreaSelectionOpen]);
 
   const handleSubmit = async () => {
     if (!selectedFiles || selectedFiles.length === 0) {
@@ -82,14 +197,22 @@ const AIVideoProcessor: React.FC = () => {
       return;
     }
 
+    if (!selectionComplete) {
+      setError('请先完成所有视频的字幕区域选择');
+      return;
+    }
+
     setIsProcessing(true);
     setError('');
 
     const formData = new FormData();
-    Array.from(selectedFiles).forEach((file) => {
-      formData.append('files', file);
+    videoPreviews.forEach((preview, index) => {
+      formData.append('videos', preview.file);
+      formData.append(`video_areas[${index}]`, JSON.stringify(preview.selectedArea));
     });
     formData.append('text', text);
+    formData.append('remove_subtitles', removeSubtitles.toString());
+    formData.append('generate_subtitles', generateSubtitles.toString());
 
     try {
       const response = await axios.post(DOUYIN_API.BATCH_PROCESS_VIDEOS, formData, {
@@ -105,6 +228,8 @@ const AIVideoProcessor: React.FC = () => {
       setIsProcessing(false);
       setSelectedFiles(null);
       setText('');
+      setVideoPreviews([]);
+      setSelectionComplete(false);
     }
   };
 
@@ -189,6 +314,43 @@ const AIVideoProcessor: React.FC = () => {
               }
             }}
           />
+
+          <FormGroup sx={{ mb: 3 }}>
+            <Box sx={{ 
+              p: 2, 
+              bgcolor: 'background.paper', 
+              borderRadius: 2,
+              boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+            }}>
+              <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'medium', color: theme.palette.primary.main }}>
+                字幕处理选项
+              </Typography>
+              <Tooltip title="移除视频中已有的字幕">
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={removeSubtitles}
+                      onChange={(e) => setRemoveSubtitles(e.target.checked)}
+                      color="primary"
+                    />
+                  }
+                  label="移除原字幕"
+                />
+              </Tooltip>
+              <Tooltip title="为新的配音生成对应的字幕">
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={generateSubtitles}
+                      onChange={(e) => setGenerateSubtitles(e.target.checked)}
+                      color="primary"
+                    />
+                  }
+                  label="生成新字幕"
+                />
+              </Tooltip>
+            </Box>
+          </FormGroup>
 
           <Button
             variant="contained"
@@ -290,6 +452,53 @@ const AIVideoProcessor: React.FC = () => {
           </CardContent>
         </Card>
       )}
+
+      {/* 区域选择对话框 */}
+      <Dialog
+        open={isAreaSelectionOpen}
+        maxWidth="md"
+        fullWidth
+        onClose={() => setIsAreaSelectionOpen(false)}
+      >
+        <DialogTitle>
+          选择字幕区域 ({currentPreviewIndex + 1}/{videoPreviews.length})
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ position: 'relative', width: '100%', height: '400px' }}>
+            <canvas
+              ref={canvasRef}
+              width={640}
+              height={360}
+              onMouseDown={handleCanvasMouseDown}
+              onMouseMove={handleCanvasMouseMove}
+              onMouseUp={handleCanvasMouseUp}
+              style={{
+                border: '1px solid #ccc',
+                cursor: 'crosshair'
+              }}
+            />
+          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+            请在视频预览中框选需要擦除字幕的区域
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={handlePrevVideo}
+            disabled={currentPreviewIndex === 0}
+            startIcon={<NavigateBeforeIcon />}
+          >
+            上一个
+          </Button>
+          <Button
+            onClick={handleNextVideo}
+            color="primary"
+            endIcon={<NavigateNextIcon />}
+          >
+            {currentPreviewIndex === videoPreviews.length - 1 ? '完成' : '下一个'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

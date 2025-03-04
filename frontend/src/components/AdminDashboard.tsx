@@ -232,16 +232,21 @@ const AdminDashboard = () => {
                 width: 48, 
                 height: 48, 
                 mr: 2,
-                animation: 'pulse 2s infinite',
-                '@keyframes pulse': {
+                color: '#3f51b5',
+                background: 'linear-gradient(135deg, #3f51b5 0%, #757de8 100%)',
+                padding: '8px',
+                borderRadius: '12px',
+                boxShadow: '0 4px 8px rgba(63, 81, 181, 0.2)',
+                animation: 'float 3s ease-in-out infinite',
+                '@keyframes float': {
                   '0%': {
-                    transform: 'scale(1)',
+                    transform: 'translateY(0px)',
                   },
                   '50%': {
-                    transform: 'scale(1.05)',
+                    transform: 'translateY(-6px)',
                   },
                   '100%': {
-                    transform: 'scale(1)',
+                    transform: 'translateY(0px)',
                   },
                 },
               }} 

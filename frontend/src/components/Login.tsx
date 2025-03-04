@@ -79,18 +79,24 @@ const Login = () => {
       padding: 2
     }}>
       <Fade in={true} timeout={1000}>
-        <Container maxWidth="sm">
-          <Grid container spacing={2} sx={{ minHeight: '70vh' }}>
+        <Container maxWidth="md" sx={{ 
+          width: '100%',
+          height: '600px'
+        }}>
+          <Grid container sx={{ 
+            height: '100%',
+            boxShadow: '0 10px 30px rgba(0, 0, 0, 0.1)',
+            borderRadius: 2
+          }}>
             <Grid item xs={12} md={6} sx={{
               display: 'flex',
               flexDirection: 'column',
-              justifyContent: 'center',
-              alignItems: 'center',
+              justifyContent: 'space-between',
               background: 'linear-gradient(135deg, #3f51b5 0%, #5c6bc0 100%)',
               borderRadius: { xs: '16px 16px 0 0', md: '16px 0 0 16px' },
               p: 4,
               color: 'white',
-              boxShadow: '0 10px 30px rgba(0, 0, 0, 0.1)'
+              height: '100%'
             }}>
               <Zoom in={true} style={{ transitionDelay: '500ms' }}>
                 <Box sx={{ textAlign: 'center', mb: 4 }}>
@@ -131,159 +137,159 @@ const Login = () => {
               </Box>
             </Grid>
             
-            <Grid item xs={12} md={6}>
-              <Card sx={{
-                boxShadow: 'none',
+            <Grid item xs={12} md={6} sx={{
+              height: '100%',
+              bgcolor: '#ffffff',
+              borderRadius: { xs: '0 0 16px 16px', md: '0 16px 16px 0' }
+            }}>
+              <Box sx={{
                 height: '100%',
-                borderRadius: { xs: '0 0 16px 16px', md: '0 16px 16px 0' },
-                bgcolor: '#ffffff',
                 display: 'flex',
                 flexDirection: 'column',
-                justifyContent: 'center'
+                justifyContent: 'center',
+                p: 4
               }}>
-                <CardContent sx={{ p: 4 }}>
-                  <Typography variant="h5" component="h2" sx={{ mb: 3, fontWeight: 'bold', color: theme.palette.primary.main, textAlign: 'center' }}>
-                    欢迎回来
-                  </Typography>
-                  
-                  {error && (
-                    <Zoom in={!!error}>
-                      <Alert 
-                        severity="error" 
-                        sx={{ 
-                          mb: 3,
-                          borderRadius: 2,
-                          boxShadow: '0 2px 8px rgba(244, 67, 54, 0.2)'
-                        }}
-                      >
-                        {error}
-                      </Alert>
-                    </Zoom>
-                  )}
-                  
-                  <Box component="form" onSubmit={handleSubmit}>
-                    <TextField
-                      margin="normal"
-                      required
-                      fullWidth
-                      label="用户名"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <PersonIcon color="primary" />
-                          </InputAdornment>
-                        ),
-                      }}
-                      sx={{
-                        '& .MuiOutlinedInput-root': {
-                          borderRadius: 2,
-                        }
-                      }}
-                    />
-                    
-                    <TextField
-                      margin="normal"
-                      required
-                      fullWidth
-                      label="密码"
-                      type={showPassword ? 'text' : 'password'}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <LockIcon color="primary" />
-                          </InputAdornment>
-                        ),
-                        endAdornment: (
-                          <InputAdornment position="end">
-                            <IconButton
-                              aria-label="toggle password visibility"
-                              onClick={handleTogglePasswordVisibility}
-                              edge="end"
-                            >
-                              {showPassword ? <VisibilityOff /> : <Visibility />}
-                            </IconButton>
-                          </InputAdornment>
-                        )
-                      }}
-                      sx={{
-                        '& .MuiOutlinedInput-root': {
-                          borderRadius: 2,
-                        }
-                      }}
-                    />
-                    
-                    <Button
-                      type="submit"
-                      fullWidth
-                      variant="contained"
-                      disabled={loading}
+                <Typography variant="h5" component="h2" sx={{ mb: 3, fontWeight: 'bold', color: theme.palette.primary.main, textAlign: 'center' }}>
+                  欢迎回来
+                </Typography>
+                
+                {error && (
+                  <Zoom in={!!error}>
+                    <Alert 
+                      severity="error" 
                       sx={{ 
-                        mt: 4, 
-                        mb: 2,
-                        py: 1.5,
+                        mb: 3,
                         borderRadius: 2,
-                        fontWeight: 'bold',
-                        position: 'relative',
-                        overflow: 'hidden',
-                        background: 'linear-gradient(45deg, #3f51b5 30%, #757de8 90%)',
-                        '&::after': {
-                          content: '""',
-                          position: 'absolute',
-                          top: 0,
-                          left: '-100%',
-                          width: '100%',
-                          height: '100%',
-                          background: 'linear-gradient(45deg, transparent 0%, rgba(255,255,255,0.3) 50%, transparent 100%)',
-                          transition: 'all 0.6s',
-                        },
-                        '&:hover::after': {
-                          left: '100%',
+                        boxShadow: '0 2px 8px rgba(244, 67, 54, 0.2)'
+                      }}
+                    >
+                      {error}
+                    </Alert>
+                  </Zoom>
+                )}
+                
+                <Box component="form" onSubmit={handleSubmit}>
+                  <TextField
+                    margin="normal"
+                    required
+                    fullWidth
+                    label="用户名"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <PersonIcon color="primary" />
+                        </InputAdornment>
+                      ),
+                    }}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        borderRadius: 2,
+                      }
+                    }}
+                  />
+                  
+                  <TextField
+                    margin="normal"
+                    required
+                    fullWidth
+                    label="密码"
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <LockIcon color="primary" />
+                        </InputAdornment>
+                      ),
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton
+                            aria-label="toggle password visibility"
+                            onClick={handleTogglePasswordVisibility}
+                            edge="end"
+                          >
+                            {showPassword ? <VisibilityOff /> : <Visibility />}
+                          </IconButton>
+                        </InputAdornment>
+                      )
+                    }}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        borderRadius: 2,
+                      }
+                    }}
+                  />
+                  
+                  <Button
+                    type="submit"
+                    fullWidth
+                    variant="contained"
+                    disabled={loading}
+                    sx={{ 
+                      mt: 4, 
+                      mb: 2,
+                      py: 1.5,
+                      borderRadius: 2,
+                      fontWeight: 'bold',
+                      position: 'relative',
+                      overflow: 'hidden',
+                      background: 'linear-gradient(45deg, #3f51b5 30%, #757de8 90%)',
+                      '&::after': {
+                        content: '""',
+                        position: 'absolute',
+                        top: 0,
+                        left: '-100%',
+                        width: '100%',
+                        height: '100%',
+                        background: 'linear-gradient(45deg, transparent 0%, rgba(255,255,255,0.3) 50%, transparent 100%)',
+                        transition: 'all 0.6s',
+                      },
+                      '&:hover::after': {
+                        left: '100%',
+                      }
+                    }}
+                  >
+                    {loading ? '登录中...' : '登录'}
+                  </Button>
+                  
+                  <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                    <Link
+                      component="button"
+                      type="button"
+                      variant="body2"
+                      onClick={() => navigate('/register')}
+                      sx={{ 
+                        color: theme.palette.primary.main,
+                        textDecoration: 'none',
+                        '&:hover': {
+                          textDecoration: 'underline'
                         }
                       }}
                     >
-                      {loading ? '登录中...' : '登录'}
-                    </Button>
+                      没有账号？立即注册
+                    </Link>
                     
-                    <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap' }}>
-                      <Link
-                        component="button"
-                        type="button"
-                        variant="body2"
-                        onClick={() => navigate('/register')}
-                        sx={{ 
-                          color: theme.palette.primary.main,
-                          textDecoration: 'none',
-                          '&:hover': {
-                            textDecoration: 'underline'
-                          }
-                        }}
-                      >
-                        没有账号？立即注册
-                      </Link>
-                      
-                      <Link
-                        component="button"
-                        type="button"
-                        variant="body2"
-                        onClick={() => navigate('/forgot-password')}
-                        sx={{ 
-                          color: theme.palette.text.secondary,
-                          textDecoration: 'none',
-                          '&:hover': {
-                            textDecoration: 'underline'
-                          }
-                        }}
-                      >
-                        忘记密码？
-                      </Link>
-                    </Box>
+                    <Link
+                      component="button"
+                      type="button"
+                      variant="body2"
+                      onClick={() => navigate('/forgot-password')}
+                      sx={{ 
+                        color: theme.palette.text.secondary,
+                        textDecoration: 'none',
+                        '&:hover': {
+                          textDecoration: 'underline'
+                        }
+                      }}
+                    >
+                      忘记密码？
+                    </Link>
                   </Box>
-                </CardContent>
-              </Card>
+                </Box>
+              </Box>
             </Grid>
           </Grid>
         </Container>
