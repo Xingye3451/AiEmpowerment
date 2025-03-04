@@ -11,8 +11,21 @@ import {
   ListItem,
   ListItemText,
   Alert,
+  Card,
+  CardContent,
+  Fade,
+  Zoom,
+  IconButton,
+  useTheme,
+  Divider
 } from '@mui/material';
-import { CloudUpload as CloudUploadIcon } from '@mui/icons-material';
+import { 
+  CloudUpload as CloudUploadIcon,
+  Delete as DeleteIcon,
+  CheckCircle as CheckCircleIcon,
+  Error as ErrorIcon,
+  Refresh as RefreshIcon
+} from '@mui/icons-material';
 import axios from 'axios';
 import { DOUYIN_API } from '../config/api';
 
@@ -30,15 +43,18 @@ const AIVideoProcessor: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingTasks, setProcessingTasks] = useState<ProcessingTask[]>([]);
   const [error, setError] = useState('');
+  const theme = useTheme();
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) {
       setSelectedFiles(event.target.files);
+      setError('');
     }
   };
 
   const handleTextChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setText(event.target.value);
+    setError('');
   };
 
   const updateTaskStatus = async (tasks: ProcessingTask[]) => {
@@ -60,146 +76,221 @@ const AIVideoProcessor: React.FC = () => {
     setProcessingTasks(updatedTasks);
   };
 
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    
+  const handleSubmit = async () => {
     if (!selectedFiles || selectedFiles.length === 0) {
-      setError('请选择至少一个视频文件');
-      return;
-    }
-
-    if (!text.trim()) {
-      setError('请输入要替换的文字内容');
+      setError('请选择要处理的视频文件');
       return;
     }
 
     setIsProcessing(true);
     setError('');
 
-    try {
-      const formData = new FormData();
-      Array.from(selectedFiles).forEach(file => {
-        formData.append('videos', file);
-      });
-      formData.append('text', text);
+    const formData = new FormData();
+    Array.from(selectedFiles).forEach((file) => {
+      formData.append('files', file);
+    });
+    formData.append('text', text);
 
+    try {
       const response = await axios.post(DOUYIN_API.BATCH_PROCESS_VIDEOS, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
       });
-
-      if (response.data.success) {
-        setProcessingTasks(response.data.tasks);
-        // 开始定期检查任务状态
-        const interval = setInterval(async () => {
-          await updateTaskStatus(response.data.tasks);
-          // 如果所有任务都完成了，停止检查
-          const allCompleted = response.data.tasks.every(
-            (task: ProcessingTask) => task.status === 'completed' || task.status === 'failed'
-          );
-          if (allCompleted) {
-            clearInterval(interval);
-            setIsProcessing(false);
-          }
-        }, 3000);
-      }
-    } catch (error: any) {
-      setError(error.response?.data?.detail || '处理失败，请重试');
+      setProcessingTasks([...processingTasks, ...response.data.tasks]);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || '视频处理失败');
+      console.error('Error processing video:', err);
+    } finally {
       setIsProcessing(false);
+      setSelectedFiles(null);
+      setText('');
     }
   };
 
   return (
-    <Container component="main" maxWidth="lg">
-      <Paper elevation={3} sx={{ p: 4, mt: 8 }}>
-        <Typography component="h1" variant="h4" align="center" gutterBottom>
-          AI视频处理
-        </Typography>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <Card 
+        elevation={3} 
+        sx={{ 
+          borderRadius: 3,
+          background: 'linear-gradient(45deg, #e8eaf6 30%, #ffffff 90%)',
+          mb: 3
+        }}
+      >
+        <CardContent>
+          <Typography 
+            variant="h5" 
+            gutterBottom 
+            sx={{ 
+              fontWeight: 'bold',
+              color: theme.palette.primary.main,
+              mb: 2
+            }}
+          >
+            AI视频处理
+          </Typography>
 
-        {error && (
-          <Alert severity="error" sx={{ mb: 3 }}>
-            {error}
-          </Alert>
-        )}
-
-        <Box component="form" onSubmit={handleSubmit} sx={{ mt: 3 }}>
-          <input
-            type="file"
-            multiple
-            accept="video/*"
-            onChange={handleFileChange}
-            style={{ display: 'none' }}
-            id="video-upload-input"
-          />
-          <label htmlFor="video-upload-input">
-            <Button
-              variant="contained"
-              component="span"
-              startIcon={<CloudUploadIcon />}
-              sx={{ mb: 3 }}
-              fullWidth
-            >
-              选择视频文件
-            </Button>
-          </label>
-
-          {selectedFiles && selectedFiles.length > 0 && (
-            <Typography variant="body2" sx={{ mb: 2 }}>
-              已选择 {selectedFiles.length} 个文件
+          <Box 
+            component="label"
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              p: 3,
+              mb: 3,
+              border: '2px dashed',
+              borderColor: theme.palette.primary.main,
+              borderRadius: 2,
+              cursor: 'pointer',
+              transition: 'all 0.3s',
+              backgroundColor: 'rgba(63, 81, 181, 0.04)',
+              '&:hover': {
+                backgroundColor: 'rgba(63, 81, 181, 0.08)',
+                transform: 'translateY(-2px)',
+              }
+            }}
+          >
+            <input
+              type="file"
+              multiple
+              onChange={handleFileChange}
+              style={{ display: 'none' }}
+              accept="video/*"
+            />
+            <CloudUploadIcon 
+              sx={{ 
+                fontSize: 48,
+                color: theme.palette.primary.main,
+                mb: 2
+              }} 
+            />
+            <Typography variant="h6" sx={{ mb: 1, fontWeight: 'medium' }}>
+              点击或拖拽上传视频
             </Typography>
-          )}
+            <Typography variant="body2" color="text.secondary">
+              支持多个视频文件同时上传
+            </Typography>
+          </Box>
 
           <TextField
             fullWidth
             multiline
             rows={4}
-            variant="outlined"
-            label="要替换的文字内容"
+            label="AI处理文本"
             value={text}
             onChange={handleTextChange}
-            sx={{ mb: 3 }}
+            sx={{
+              mb: 3,
+              '& .MuiOutlinedInput-root': {
+                backgroundColor: '#ffffff',
+                borderRadius: 1,
+                boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+              }
+            }}
           />
 
           <Button
-            type="submit"
-            fullWidth
             variant="contained"
-            color="primary"
-            disabled={isProcessing || !selectedFiles || !text.trim()}
-            sx={{ mb: 3 }}
+            onClick={handleSubmit}
+            disabled={isProcessing || !selectedFiles}
+            sx={{
+              background: 'linear-gradient(45deg, #3f51b5 30%, #757de8 90%)',
+              boxShadow: '0 3px 5px 2px rgba(63, 81, 181, .3)',
+              transition: 'transform 0.3s',
+              '&:hover': {
+                transform: 'translateY(-2px)',
+              }
+            }}
           >
             {isProcessing ? '处理中...' : '开始处理'}
           </Button>
+        </CardContent>
+      </Card>
 
-          {processingTasks.length > 0 && (
+      {error && (
+        <Zoom in={!!error}>
+          <Alert 
+            severity="error" 
+            sx={{ 
+              mb: 2,
+              boxShadow: '0 2px 10px rgba(244, 67, 54, 0.2)',
+              borderRadius: 2
+            }}
+          >
+            {error}
+          </Alert>
+        </Zoom>
+      )}
+
+      {processingTasks.length > 0 && (
+        <Card 
+          elevation={3} 
+          sx={{ 
+            borderRadius: 3,
+            background: 'linear-gradient(45deg, #e8eaf6 30%, #ffffff 90%)',
+          }}
+        >
+          <CardContent>
+            <Typography 
+              variant="h5" 
+              gutterBottom 
+              sx={{ 
+                fontWeight: 'bold',
+                color: theme.palette.primary.main,
+                mb: 2
+              }}
+            >
+              处理任务
+            </Typography>
+
             <List>
-              {processingTasks.map((task) => (
-                <ListItem key={task.task_id}>
-                  <ListItemText
-                    primary={`文件: ${task.original_filename}`}
-                    secondary={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Typography variant="body2">
-                          状态: {task.status || '等待中'}
-                        </Typography>
-                        {task.progress !== undefined && (
-                          <CircularProgress
-                            variant="determinate"
-                            value={task.progress}
-                            size={20}
-                          />
-                        )}
-                      </Box>
-                    }
-                  />
-                </ListItem>
+              {processingTasks.map((task, index) => (
+                <Fade in={true} key={task.task_id}>
+                  <ListItem
+                    sx={{
+                      bgcolor: 'background.paper',
+                      borderRadius: 2,
+                      mb: 1,
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+                      transition: 'transform 0.2s',
+                      '&:hover': {
+                        transform: 'translateX(8px)'
+                      }
+                    }}
+                  >
+                    <ListItemText
+                      primary={task.original_filename}
+                      secondary={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          {task.status === 'completed' ? (
+                            <CheckCircleIcon sx={{ color: theme.palette.success.main }} />
+                          ) : task.status === 'failed' ? (
+                            <ErrorIcon sx={{ color: theme.palette.error.main }} />
+                          ) : (
+                            <CircularProgress
+                              variant="determinate"
+                              value={task.progress || 0}
+                              size={20}
+                              sx={{ color: theme.palette.primary.main }}
+                            />
+                          )}
+                          <Typography variant="body2" color="text.secondary">
+                            {task.status === 'completed' ? '处理完成' : 
+                             task.status === 'failed' ? '处理失败' :
+                             `处理中 ${task.progress}%`}
+                          </Typography>
+                        </Box>
+                      }
+                    />
+                  </ListItem>
+                </Fade>
               ))}
             </List>
-          )}
-        </Box>
-      </Paper>
-    </Container>
+          </CardContent>
+        </Card>
+      )}
+    </Box>
   );
 };
 

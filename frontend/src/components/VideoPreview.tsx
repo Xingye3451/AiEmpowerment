@@ -7,10 +7,12 @@ import {
   Typography,
   CircularProgress,
   IconButton,
+  Alert,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import axios from 'axios';
 import { DOUYIN_API } from '../config/api';
+import { useTheme } from '@mui/material/styles';
 
 interface VideoPreviewProps {
   videoPath: string;
@@ -22,9 +24,12 @@ interface VideoInfo {
   size: number;
   duration: number;
   created: string;
+  width: number;
+  height: number;
 }
 
 const VideoPreview: React.FC<VideoPreviewProps> = ({ videoPath, open, onClose }) => {
+  const theme = useTheme();
   const [loading, setLoading] = useState(true);
   const [previewUrl, setPreviewUrl] = useState('');
   const [videoInfo, setVideoInfo] = useState<VideoInfo | null>(null);
@@ -75,44 +80,112 @@ const VideoPreview: React.FC<VideoPreviewProps> = ({ videoPath, open, onClose })
       onClose={onClose}
       maxWidth="md"
       fullWidth
+      sx={{
+        '& .MuiDialog-paper': {
+          borderRadius: 3,
+          background: 'linear-gradient(45deg, #e8eaf6 30%, #ffffff 90%)',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
+        }
+      }}
     >
-      <DialogTitle>
-        <Box display="flex" alignItems="center" justifyContent="space-between">
+      <DialogTitle sx={{ 
+        display: 'flex', 
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        background: 'linear-gradient(45deg, #3f51b5 30%, #757de8 90%)',
+        color: 'white',
+        py: 2
+      }}>
+        <Typography variant="h6" component="div" sx={{ fontWeight: 'bold' }}>
           视频预览
-          <IconButton onClick={onClose} size="small">
-            <CloseIcon />
-          </IconButton>
-        </Box>
+        </Typography>
+        <IconButton
+          edge="end"
+          color="inherit"
+          onClick={onClose}
+          aria-label="close"
+        >
+          <CloseIcon />
+        </IconButton>
       </DialogTitle>
-      <DialogContent>
+
+      <DialogContent sx={{ p: 3 }}>
         {loading ? (
-          <Box display="flex" justifyContent="center" alignItems="center" p={4}>
-            <CircularProgress />
+          <Box sx={{ 
+            display: 'flex', 
+            justifyContent: 'center', 
+            alignItems: 'center',
+            minHeight: 300
+          }}>
+            <CircularProgress 
+              sx={{ 
+                color: theme.palette.primary.main 
+              }} 
+            />
           </Box>
         ) : error ? (
-          <Typography color="error" align="center">
+          <Alert 
+            severity="error"
+            sx={{ 
+              borderRadius: 2,
+              boxShadow: '0 2px 10px rgba(244, 67, 54, 0.2)'
+            }}
+          >
             {error}
-          </Typography>
+          </Alert>
         ) : (
-          <Box>
-            <Box
-              component="video"
-              width="100%"
-              controls
-              src={`/api/v1/douyin/video/${videoPath.split('/').pop()}`}
-              sx={{ mb: 2 }}
-            />
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Box 
+              sx={{ 
+                position: 'relative',
+                width: '100%',
+                paddingTop: '56.25%', // 16:9 宽高比
+                borderRadius: 2,
+                overflow: 'hidden',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+              }}
+            >
+              <Box
+                component="video"
+                src={previewUrl}
+                controls
+                sx={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain',
+                  backgroundColor: 'black',
+                }}
+              />
+            </Box>
+
             {videoInfo && (
-              <Box>
-                <Typography variant="body2">
-                  文件大小: {formatFileSize(videoInfo.size)}
+              <Box 
+                sx={{ 
+                  mt: 2,
+                  p: 2,
+                  borderRadius: 2,
+                  backgroundColor: 'rgba(63, 81, 181, 0.04)',
+                  border: '1px solid',
+                  borderColor: 'primary.light'
+                }}
+              >
+                <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'medium', color: 'primary.main' }}>
+                  视频信息
                 </Typography>
-                <Typography variant="body2">
-                  视频时长: {formatDuration(videoInfo.duration)}
-                </Typography>
-                <Typography variant="body2">
-                  创建时间: {new Date(videoInfo.created).toLocaleString()}
-                </Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    文件大小: {formatFileSize(videoInfo.size)}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    时长: {formatDuration(videoInfo.duration)}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    分辨率: {videoInfo.width} x {videoInfo.height}
+                  </Typography>
+                </Box>
               </Box>
             )}
           </Box>

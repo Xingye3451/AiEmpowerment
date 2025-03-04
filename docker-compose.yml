@@ -12,6 +12,19 @@ services:
       - SECRET_KEY=your-secret-key-here  # 在生产环境中应该使用更安全的方式
     ports:
       - "8000:8000"
+    networks:
+      - app-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/"]
       interval: 30s
@@ -23,5 +36,22 @@ services:
     container_name: aiempowerment-frontend
     ports:
       - "80:80"
+    networks:
+      - app-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       - backend
+
+networks:
+  app-network:
+    driver: bridge

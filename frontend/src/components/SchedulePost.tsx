@@ -13,6 +13,8 @@ import {
   Select,
   MenuItem,
   Alert,
+  Zoom,
+  Paper,
 } from '@mui/material';
 import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -89,30 +91,94 @@ const SchedulePost: React.FC<SchedulePostProps> = ({
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>定时发布设置</DialogTitle>
+    <Dialog 
+      open={open} 
+      onClose={onClose} 
+      maxWidth="sm" 
+      fullWidth
+      PaperProps={{
+        sx: {
+          borderRadius: 3,
+          background: 'linear-gradient(45deg, #f5f5f5 30%, #ffffff 90%)',
+          boxShadow: '0 3px 5px 2px rgba(0, 0, 0, .2)',
+        }
+      }}
+    >
+      <DialogTitle
+        sx={{
+          fontWeight: 'bold',
+          color: theme => theme.palette.primary.main,
+          borderBottom: '1px solid rgba(0, 0, 0, 0.12)',
+          pb: 2,
+        }}
+      >
+        定时发布设置
+      </DialogTitle>
       <DialogContent>
         <Box sx={{ mt: 2 }}>
           {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
-            </Alert>
+            <Zoom in={!!error}>
+              <Alert 
+                severity="error" 
+                sx={{ 
+                  mb: 2,
+                  borderRadius: 2,
+                  boxShadow: '0 2px 8px rgba(244, 67, 54, 0.2)',
+                }}
+              >
+                {error}
+              </Alert>
+            </Zoom>
           )}
 
-          <Typography variant="subtitle1" gutterBottom>
-            视频信息
-          </Typography>
-          <Typography variant="body2" color="textSecondary">
-            标题: {videoTitle}
-          </Typography>
-          {videoDescription && (
-            <Typography variant="body2" color="textSecondary">
-              描述: {videoDescription}
+          <Paper
+            elevation={0}
+            sx={{
+              p: 2,
+              mb: 3,
+              backgroundColor: 'rgba(0, 0, 0, 0.02)',
+              borderRadius: 2,
+            }}
+          >
+            <Typography 
+              variant="subtitle1" 
+              gutterBottom
+              sx={{ 
+                fontWeight: 'bold',
+                color: theme => theme.palette.primary.main,
+              }}
+            >
+              视频信息
             </Typography>
-          )}
+            <Typography 
+              variant="body2" 
+              color="textSecondary"
+              sx={{ mb: 1 }}
+            >
+              标题: {videoTitle}
+            </Typography>
+            {videoDescription && (
+              <Typography 
+                variant="body2" 
+                color="textSecondary"
+              >
+                描述: {videoDescription}
+              </Typography>
+            )}
+          </Paper>
 
           <Box sx={{ my: 3 }}>
-            <FormControl fullWidth sx={{ mb: 2 }}>
+            <FormControl 
+              fullWidth 
+              sx={{ 
+                mb: 3,
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: 2,
+                  backgroundColor: '#ffffff',
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+                },
+              }}
+            >
               <InputLabel>选择发布账号组</InputLabel>
               <Select
                 value={selectedGroup}
@@ -139,6 +205,13 @@ const SchedulePost: React.FC<SchedulePostProps> = ({
                   textField: {
                     fullWidth: true,
                     helperText: '请选择未来的时间点',
+                    sx: {
+                      '& .MuiOutlinedInput-root': {
+                        borderRadius: 2,
+                        backgroundColor: '#ffffff',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+                      },
+                    },
                   },
                 }}
                 minDateTime={new Date()}
@@ -146,20 +219,53 @@ const SchedulePost: React.FC<SchedulePostProps> = ({
             </LocalizationProvider>
           </Box>
 
-          <Typography variant="body2" color="textSecondary">
+          <Typography 
+            variant="body2" 
+            color="textSecondary"
+            sx={{
+              p: 2,
+              backgroundColor: 'rgba(33, 150, 243, 0.08)',
+              borderRadius: 2,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
             将发布到 {selectedGroup
               ? groups.find(g => g.id === selectedGroup)?.accounts.length
               : accounts.length} 个账号
           </Typography>
         </Box>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>取消</Button>
+      <DialogActions sx={{ p: 3, borderTop: '1px solid rgba(0, 0, 0, 0.12)' }}>
+        <Button 
+          onClick={onClose}
+          sx={{
+            borderRadius: 2,
+            px: 3,
+            color: theme => theme.palette.text.secondary,
+          }}
+        >
+          取消
+        </Button>
         <Button
           onClick={handleSchedule}
           variant="contained"
           color="primary"
           disabled={isSubmitting || !scheduleTime}
+          sx={{
+            borderRadius: 2,
+            px: 3,
+            background: 'linear-gradient(45deg, #3f51b5 30%, #757de8 90%)',
+            boxShadow: '0 3px 5px 2px rgba(63, 81, 181, .3)',
+            transition: 'transform 0.3s',
+            '&:hover': {
+              transform: 'translateY(-1px)',
+            },
+            '&:disabled': {
+              background: theme => theme.palette.action.disabledBackground,
+            },
+          }}
         >
           {isSubmitting ? '创建中...' : '创建定时任务'}
         </Button>

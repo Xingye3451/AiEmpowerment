@@ -23,6 +23,11 @@ import {
   Select,
   MenuItem,
   SelectChangeEvent,
+  Card,
+  CardContent,
+  useTheme,
+  Fade,
+  Zoom,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
@@ -75,6 +80,7 @@ const DOUYIN_API = {
 };
 
 const DouyinManager: React.FC = () => {
+  const theme = useTheme();
   const [accounts, setAccounts] = useState<DouyinAccount[]>([]);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -408,251 +414,358 @@ const DouyinManager: React.FC = () => {
   };
 
   return (
-    <Box sx={{ p: 3, display: 'flex' }}>
-      {/* 左侧Tab导航 */}
-      <Box sx={{ width: '200px', borderRight: 1, borderColor: 'divider', pr: 2 }}>
-        <Tabs
-          orientation="vertical"
-          variant="scrollable"
-          value={currentTab}
-          onChange={handleTabChange}
-          aria-label="管理导航"
-          sx={{
-            '& .MuiTab-root': {
-              minHeight: 48,
-              justifyContent: 'flex-start',
-              textAlign: 'left',
-              pl: 2,
-            },
-          }}
-        >
-          <Tab label="发布管理" value={0} />
-          <Tab label="账号分组" value={1} />
-          <Tab label="发布历史" value={2} />
-          <Tab label="统计分析" value={3} />
-        </Tabs>
-      </Box>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <Card 
+        elevation={3} 
+        sx={{ 
+          borderRadius: 3,
+          background: 'linear-gradient(45deg, #e8eaf6 30%, #ffffff 90%)',
+          mb: 3
+        }}
+      >
+        <CardContent>
+          <Typography 
+            variant="h5" 
+            gutterBottom 
+            sx={{ 
+              fontWeight: 'bold',
+              color: theme.palette.primary.main,
+              mb: 2
+            }}
+          >
+            抖音账号管理
+          </Typography>
+          
+          <Box sx={{ 
+            display: 'flex', 
+            gap: 2, 
+            mb: 3,
+            '& .MuiTextField-root': {
+              background: '#ffffff',
+              borderRadius: 1,
+              boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+            }
+          }}>
+            <TextField
+              label="账号"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              sx={{ flex: 1 }}
+            />
+            <TextField
+              label="密码"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              sx={{ flex: 1 }}
+            />
+            <Button
+              variant="contained"
+              onClick={addAccount}
+              sx={{
+                background: 'linear-gradient(45deg, #3f51b5 30%, #757de8 90%)',
+                boxShadow: '0 3px 5px 2px rgba(63, 81, 181, .3)',
+                transition: 'transform 0.3s',
+                '&:hover': {
+                  transform: 'translateY(-2px)',
+                }
+              }}
+            >
+              添加账号
+            </Button>
+          </Box>
 
-      {/* 右侧内容区域 */}
-      <Box sx={{ flex: 1, pl: 3 }}>
-        {message.content && (
-          <Alert severity={message.type as 'success' | 'error'} sx={{ mb: 2 }}>
-            {message.content}
-          </Alert>
-        )}
+          <FormControl fullWidth sx={{ mb: 2 }}>
+            <InputLabel>选择账号分组</InputLabel>
+            <Select
+              value={selectedGroup}
+              onChange={handleGroupSelect}
+              label="选择账号分组"
+            >
+              <MenuItem value="">
+                <em>不使用分组</em>
+              </MenuItem>
+              {groups.map((group) => (
+                <MenuItem key={group.id} value={group.id}>
+                  {group.name} ({group.accounts.length}个账号)
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
 
-        {/* Tab内容区域 */}
-        <Box sx={{ mt: 2 }}>
-          {currentTab === 0 && (
-            <>
-              <Paper sx={{ p: 2, mb: 2 }}>
-                <Typography variant="h6" gutterBottom>
-                  添加账号
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-                  <TextField
-                    label="抖音用户名"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                  />
-                  <TextField
-                    label="密码"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                  />
-                  <Button variant="contained" onClick={addAccount}>
-                    添加
-                  </Button>
-                </Box>
+          <TableContainer 
+            component={Paper} 
+            sx={{ 
+              borderRadius: 2,
+              boxShadow: '0 4px 8px rgba(0,0,0,0.05)',
+              overflow: 'hidden'
+            }}
+          >
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>用户名</TableCell>
+                  <TableCell>密码</TableCell>
+                  <TableCell>操作</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {accounts.map((account, index) => (
+                  <TableRow key={index}>
+                    <TableCell>{account.username}</TableCell>
+                    <TableCell>******</TableCell>
+                    <TableCell>
+                      <IconButton onClick={() => removeAccount(index)}>
+                        <DeleteIcon />
+                      </IconButton>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
 
-                <FormControl fullWidth sx={{ mb: 2 }}>
-                  <InputLabel>选择账号分组</InputLabel>
-                  <Select
-                    value={selectedGroup}
-                    onChange={handleGroupSelect}
-                    label="选择账号分组"
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={handleBatchLogin}
+            sx={{ mt: 2 }}
+            disabled={accounts.length === 0}
+          >
+            批量登录
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card 
+        elevation={3} 
+        sx={{ 
+          borderRadius: 3,
+          background: 'linear-gradient(45deg, #e8eaf6 30%, #ffffff 90%)',
+          mb: 3
+        }}
+      >
+        <CardContent>
+          <Typography 
+            variant="h5" 
+            gutterBottom 
+            sx={{ 
+              fontWeight: 'bold',
+              color: theme.palette.primary.main,
+              mb: 2
+            }}
+          >
+            视频发布
+          </Typography>
+          
+          <Box sx={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            gap: 2,
+            '& .MuiTextField-root': {
+              background: '#ffffff',
+              borderRadius: 1,
+              boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+            }
+          }}>
+            <TextField
+              label="视频标题"
+              value={video.title}
+              onChange={(e) => setVideo(prev => ({ ...prev, title: e.target.value }))}
+            />
+            <TextField
+              label="视频描述"
+              multiline
+              rows={3}
+              value={video.description}
+              onChange={(e) => setVideo(prev => ({ ...prev, description: e.target.value }))}
+            />
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+              <Button
+                variant="contained"
+                component="label"
+                startIcon={<FileUploadIcon />}
+                disabled={isUploading}
+              >
+                选择视频
+                <input
+                  type="file"
+                  hidden
+                  accept="video/*"
+                  onChange={handleFileChange}
+                />
+              </Button>
+              {video.file && (
+                <>
+                  <Typography variant="body2" sx={{ flex: 1 }}>
+                    已选择视频: {video.file.name}
+                  </Typography>
+                  <Button
+                    variant="contained"
+                    color="secondary"
+                    onClick={handleVideoUpload}
+                    disabled={isUploading}
+                    startIcon={isUploading ? <CircularProgress size={20} /> : <VideocamIcon />}
                   >
-                    <MenuItem value="">
-                      <em>不使用分组</em>
-                    </MenuItem>
-                    {groups.map((group) => (
-                      <MenuItem key={group.id} value={group.id}>
-                        {group.name} ({group.accounts.length}个账号)
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-
-                <TableContainer>
-                  <Table>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>用户名</TableCell>
-                        <TableCell>密码</TableCell>
-                        <TableCell>操作</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {accounts.map((account, index) => (
-                        <TableRow key={index}>
-                          <TableCell>{account.username}</TableCell>
-                          <TableCell>******</TableCell>
-                          <TableCell>
-                            <IconButton onClick={() => removeAccount(index)}>
-                              <DeleteIcon />
-                            </IconButton>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-
+                    {isUploading ? '上传中...' : '上传视频'}
+                  </Button>
+                  <IconButton
+                    color="primary"
+                    onClick={() => setShowPreview(true)}
+                    disabled={!video.uploadPath}
+                  >
+                    <PreviewIcon />
+                  </IconButton>
+                </>
+              )}
+            </Box>
+            
+            {video.uploadPath && (
+              <Box sx={{ display: 'flex', gap: 2 }}>
                 <Button
                   variant="contained"
                   color="primary"
-                  onClick={handleBatchLogin}
-                  sx={{ mt: 2 }}
-                  disabled={accounts.length === 0}
+                  onClick={handleBatchPost}
+                  disabled={isPosting || accounts.length === 0}
+                  startIcon={isPosting ? <CircularProgress size={20} /> : null}
                 >
-                  批量登录
+                  {isPosting ? '发布中...' : '立即发布'}
                 </Button>
-              </Paper>
+                <Button
+                  variant="outlined"
+                  color="primary"
+                  onClick={() => setShowScheduleDialog(true)}
+                  disabled={accounts.length === 0}
+                  startIcon={<EventNoteIcon />}
+                >
+                  定时发布
+                </Button>
+              </Box>
+            )}
+          </Box>
+        </CardContent>
+      </Card>
 
-              <Paper sx={{ p: 2 }}>
-                <Typography variant="h6" gutterBottom>
-                  批量发布视频
-                </Typography>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <TextField
-                    label="视频标题"
-                    value={video.title}
-                    onChange={(e) => setVideo(prev => ({ ...prev, title: e.target.value }))}
-                  />
-                  <TextField
-                    label="视频描述"
-                    multiline
-                    rows={3}
-                    value={video.description}
-                    onChange={(e) => setVideo(prev => ({ ...prev, description: e.target.value }))}
-                  />
-                  <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-                    <Button
-                      variant="contained"
-                      component="label"
-                      startIcon={<FileUploadIcon />}
-                      disabled={isUploading}
-                    >
-                      选择视频
-                      <input
-                        type="file"
-                        hidden
-                        accept="video/*"
-                        onChange={handleFileChange}
-                      />
-                    </Button>
-                    {video.file && (
-                      <>
-                        <Typography variant="body2" sx={{ flex: 1 }}>
-                          已选择视频: {video.file.name}
-                        </Typography>
-                        <Button
-                          variant="contained"
-                          color="secondary"
-                          onClick={handleVideoUpload}
-                          disabled={isUploading}
-                          startIcon={isUploading ? <CircularProgress size={20} /> : <VideocamIcon />}
-                        >
-                          {isUploading ? '上传中...' : '上传视频'}
-                        </Button>
-                        <IconButton
-                          color="primary"
-                          onClick={() => setShowPreview(true)}
-                          disabled={!video.uploadPath}
-                        >
-                          <PreviewIcon />
-                        </IconButton>
-                      </>
-                    )}
-                  </Box>
-                  
-                  {video.uploadPath && (
-                    <Box sx={{ display: 'flex', gap: 2 }}>
-                      <Button
-                        variant="contained"
-                        color="primary"
-                        onClick={handleBatchPost}
-                        disabled={isPosting || accounts.length === 0}
-                        startIcon={isPosting ? <CircularProgress size={20} /> : null}
-                      >
-                        {isPosting ? '发布中...' : '立即发布'}
-                      </Button>
-                      <Button
-                        variant="outlined"
-                        color="primary"
-                        onClick={() => setShowScheduleDialog(true)}
-                        disabled={accounts.length === 0}
-                        startIcon={<EventNoteIcon />}
-                      >
-                        定时发布
-                      </Button>
-                    </Box>
-                  )}
-                </Box>
-              </Paper>
+      {message.content && (
+        <Zoom in={!!message.content}>
+          <Alert 
+            severity={message.type === 'success' ? 'success' : 'error'}
+            sx={{ 
+              mb: 2,
+              boxShadow: '0 2px 10px rgba(0, 0, 0, 0.1)',
+              borderRadius: 2
+            }}
+          >
+            {message.content}
+          </Alert>
+        </Zoom>
+      )}
 
-              <Paper sx={{ p: 2, mt: 2 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}
-                    onClick={() => setShowTasks(!showTasks)}>
-                  <Typography variant="h6" sx={{ flex: 1 }}>
-                    任务列表
-                  </Typography>
-                  <IconButton>
-                    {showTasks ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                  </IconButton>
-                </Box>
-                <Collapse in={showTasks}>
-                  {renderTaskList()}
-                </Collapse>
-              </Paper>
+      <Card 
+        elevation={3} 
+        sx={{ 
+          borderRadius: 3,
+          background: 'linear-gradient(45deg, #e8eaf6 30%, #ffffff 90%)',
+          mb: 3
+        }}
+      >
+        <CardContent>
+          <Typography 
+            variant="h5" 
+            gutterBottom 
+            sx={{ 
+              fontWeight: 'bold',
+              color: theme.palette.primary.main,
+              mb: 2
+            }}
+          >
+            任务列表
+          </Typography>
+          
+          <Box sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}
+              onClick={() => setShowTasks(!showTasks)}>
+            <Typography variant="h6" sx={{ flex: 1 }}>
+              任务列表
+            </Typography>
+            <IconButton>
+              {showTasks ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+            </IconButton>
+          </Box>
+          <Collapse in={showTasks}>
+            {renderTaskList()}
+          </Collapse>
+        </CardContent>
+      </Card>
 
-              {video.uploadPath && (
-                <>
-                  <VideoPreview
-                    videoPath={video.uploadPath}
-                    open={showPreview}
-                    onClose={() => setShowPreview(false)}
-                  />
-                  <SchedulePost
-                    open={showScheduleDialog}
-                    onClose={() => setShowScheduleDialog(false)}
-                    videoPath={video.uploadPath}
-                    videoTitle={video.title}
-                    videoDescription={video.description}
-                    accounts={accounts.map(acc => acc.username)}
-                    groups={groups}
-                    onScheduled={handleScheduled}
-                  />
-                </>
-              )}
-            </>
-          )}
+      {video.uploadPath && (
+        <>
+          <VideoPreview
+            videoPath={video.uploadPath}
+            open={showPreview}
+            onClose={() => setShowPreview(false)}
+          />
+          <SchedulePost
+            open={showScheduleDialog}
+            onClose={() => setShowScheduleDialog(false)}
+            videoPath={video.uploadPath}
+            videoTitle={video.title}
+            videoDescription={video.description}
+            accounts={accounts.map(acc => acc.username)}
+            groups={groups}
+            onScheduled={handleScheduled}
+          />
+        </>
+      )}
 
-          {currentTab === 1 && <AccountGroups />}
+      <Card 
+        elevation={3} 
+        sx={{ 
+          borderRadius: 3,
+          background: 'linear-gradient(45deg, #e8eaf6 30%, #ffffff 90%)',
+          mb: 3
+        }}
+      >
+        <CardContent>
+          <Typography 
+            variant="h5" 
+            gutterBottom 
+            sx={{ 
+              fontWeight: 'bold',
+              color: theme.palette.primary.main,
+              mb: 2
+            }}
+          >
+            发布历史
+          </Typography>
+          
+          {renderHistory()}
+        </CardContent>
+      </Card>
 
-          {currentTab === 2 && (
-            <Paper sx={{ p: 2 }}>
-              <Typography variant="h6" gutterBottom>
-                发布历史
-              </Typography>
-              {renderHistory()}
-            </Paper>
-          )}
-
-          {currentTab === 3 && <PublishStats />}
-        </Box>
-      </Box>
+      <Card 
+        elevation={3} 
+        sx={{ 
+          borderRadius: 3,
+          background: 'linear-gradient(45deg, #e8eaf6 30%, #ffffff 90%)',
+          mb: 3
+        }}
+      >
+        <CardContent>
+          <Typography 
+            variant="h5" 
+            gutterBottom 
+            sx={{ 
+              fontWeight: 'bold',
+              color: theme.palette.primary.main,
+              mb: 2
+            }}
+          >
+            统计分析
+          </Typography>
+          
+          <PublishStats />
+        </CardContent>
+      </Card>
     </Box>
   );
 };

@@ -19,10 +19,16 @@ import {
   TextField,
   Tabs,
   Tab,
+  useTheme,
+  alpha,
 } from '@mui/material';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { ADMIN_API } from '../config/api';
+import DashboardIcon from '@mui/icons-material/Dashboard';
+import PeopleIcon from '@mui/icons-material/People';
+import SettingsIcon from '@mui/icons-material/Settings';
+import Logo from './Logo';
 
 interface User {
   id: number;
@@ -202,37 +208,103 @@ const AdminDashboard = () => {
 
   return (
     <Container component="main" maxWidth={false} sx={{ p: 0 }}>
-      <Paper elevation={3} sx={{ p: 4, mt: 8, mx: 0 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 4 }}>
-          <Typography variant="h4" component="h1">
-            管理员控制面板
-          </Typography>
+      <Paper 
+        elevation={3} 
+        sx={{ 
+          p: 4, 
+          mt: 8, 
+          mx: 0,
+          minHeight: 'calc(100vh - 100px)',
+          backgroundColor: '#f8f9fa'
+        }}
+      >
+        <Box sx={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          mb: 4,
+          borderBottom: '2px solid',
+          borderColor: '#3f51b5',
+          pb: 2
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <Logo 
+              sx={{ 
+                width: 48, 
+                height: 48, 
+                mr: 2,
+                animation: 'pulse 2s infinite',
+                '@keyframes pulse': {
+                  '0%': {
+                    transform: 'scale(1)',
+                  },
+                  '50%': {
+                    transform: 'scale(1.05)',
+                  },
+                  '100%': {
+                    transform: 'scale(1)',
+                  },
+                },
+              }} 
+            />
+            <Typography 
+              variant="h4" 
+              component="h1"
+              sx={{
+                fontWeight: 700,
+                background: 'linear-gradient(45deg, #3f51b5 30%, #757de8 90%)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent'
+              }}
+            >
+              管理员控制面板
+            </Typography>
+          </Box>
           <Box>
             <Button 
-              variant="outlined" 
-              color="primary" 
+              variant="contained" 
               onClick={() => setChangePasswordDialog(true)}
-              sx={{ mr: 2 }}
+              sx={{ 
+                mr: 2,
+                background: 'linear-gradient(45deg, #3f51b5 30%, #757de8 90%)',
+                boxShadow: '0 3px 5px 2px rgba(63, 81, 181, 0.3)',
+                '&:hover': {
+                  background: 'linear-gradient(45deg, #303f9f 30%, #5c6bc0 90%)',
+                }
+              }}
             >
               修改密码
             </Button>
-            <Button variant="outlined" color="primary" onClick={handleLogout}>
+            <Button 
+              variant="outlined"
+              onClick={handleLogout}
+              sx={{
+                borderColor: '#3f51b5',
+                color: '#3f51b5',
+                '&:hover': {
+                  borderColor: '#303f9f',
+                  backgroundColor: alpha('#3f51b5', 0.1)
+                }
+              }}
+            >
               退出登录
             </Button>
           </Box>
         </Box>
 
         <Box sx={{ display: 'flex' }}>
-          {/* 左侧Tab导航 - 调整到最左侧 */}
+          {/* 左侧导航栏优化 */}
           <Box sx={{ 
-            width: '200px', 
-            borderRight: 1, 
-            borderColor: 'divider', 
+            width: '240px', 
+            borderRight: '1px solid',
+            borderColor: 'divider',
             pr: 2,
             position: 'sticky',
             left: 0,
-            bgcolor: 'background.paper',
+            bgcolor: '#fff',
             zIndex: 1,
+            height: 'calc(100vh - 200px)',
+            boxShadow: '2px 0 5px rgba(0,0,0,0.05)',
+            borderRadius: '10px 0 0 10px'
           }}>
             <Tabs
               orientation="vertical"
@@ -241,56 +313,116 @@ const AdminDashboard = () => {
               onChange={handleTabChange}
               sx={{
                 '& .MuiTab-root': {
-                  minHeight: 48,
+                  minHeight: 60,
                   justifyContent: 'flex-start',
                   textAlign: 'left',
-                  pl: 2,
-                },
+                  pl: 3,
+                  fontSize: '1rem',
+                  fontWeight: 500,
+                  color: 'text.secondary',
+                  '&.Mui-selected': {
+                    color: '#3498db',
+                    backgroundColor: alpha('#3498db', 0.08),
+                    borderRight: '3px solid',
+                    borderColor: '#3498db'
+                  },
+                  '&:hover': {
+                    backgroundColor: alpha('#3498db', 0.04),
+                    color: '#3498db'
+                  }
+                }
               }}
             >
-              <Tab label="用户管理" />
-              {/* 后续可以在这里添加更多的tab */}
+              <Tab 
+                icon={<DashboardIcon />} 
+                iconPosition="start" 
+                label="仪表盘" 
+                sx={{ mb: 1 }}
+              />
+              <Tab 
+                icon={<PeopleIcon />} 
+                iconPosition="start" 
+                label="用户管理" 
+                sx={{ mb: 1 }}
+              />
+              <Tab 
+                icon={<SettingsIcon />} 
+                iconPosition="start" 
+                label="系统设置" 
+                sx={{ mb: 1 }}
+              />
             </Tabs>
           </Box>
 
-          {/* 右侧内容区域 - 增加左侧间距 */}
+          {/* 右侧内容区域优化 */}
           <Box sx={{ flex: 1, pl: 4 }}>
             {error && (
-              <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
+              <Alert 
+                severity="error" 
+                sx={{ 
+                  mb: 2,
+                  borderRadius: 2,
+                  boxShadow: '0 2px 8px rgba(244, 67, 54, 0.2)'
+                }} 
+                onClose={() => setError('')}
+              >
                 {error}
               </Alert>
             )}
             {success && (
-              <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>
+              <Alert 
+                severity="success" 
+                sx={{ 
+                  mb: 2,
+                  borderRadius: 2,
+                  boxShadow: '0 2px 8px rgba(76, 175, 80, 0.2)'
+                }} 
+                onClose={() => setSuccess('')}
+              >
                 {success}
               </Alert>
             )}
 
-            {/* Tab内容区域 */}
             <Box sx={{ mt: 2 }}>
-              {currentTab === 0 && (
+              {currentTab === 1 && (
                 <>
-                  <Box sx={{ mb: 2 }}>
+                  <Box sx={{ mb: 3 }}>
                     <Button
                       variant="contained"
-                      color="primary"
                       onClick={() => setCreateDialog(true)}
+                      sx={{
+                        background: 'linear-gradient(45deg, #3f51b5 30%, #757de8 90%)',
+                        boxShadow: '0 3px 5px 2px rgba(63, 81, 181, 0.3)',
+                        borderRadius: '20px',
+                        px: 4,
+                        py: 1,
+                        '&:hover': {
+                          background: 'linear-gradient(45deg, #303f9f 30%, #5c6bc0 90%)',
+                        }
+                      }}
                     >
-                      创建用户
+                      + 创建用户
                     </Button>
                   </Box>
 
-                  <TableContainer>
+                  <TableContainer 
+                    component={Paper}
+                    sx={{ 
+                      borderRadius: 2,
+                      boxShadow: '0 0 10px rgba(0,0,0,0.1)',
+                      overflow: 'hidden'
+                    }}
+                  >
                     <Table>
                       <TableHead>
-                        <TableRow>
-                          <TableCell>ID</TableCell>
-                          <TableCell>用户名</TableCell>
-                          <TableCell>邮箱</TableCell>
-                          <TableCell>角色</TableCell>
-                          <TableCell>状态</TableCell>
-                          <TableCell>最后登录</TableCell>
-                          <TableCell>操作</TableCell>
+                        <TableRow sx={{ backgroundColor: alpha('#3498db', 0.05) }}>
+                          <TableCell sx={{ fontWeight: 700, color: 'text.primary' }}>ID</TableCell>
+                          <TableCell sx={{ fontWeight: 700, color: 'text.primary' }}>用户名</TableCell>
+                          <TableCell sx={{ fontWeight: 700, color: 'text.primary' }}>邮箱</TableCell>
+                          <TableCell sx={{ fontWeight: 700, color: 'text.primary' }}>角色</TableCell>
+                          <TableCell sx={{ fontWeight: 700, color: 'text.primary' }}>状态</TableCell>
+                          <TableCell sx={{ fontWeight: 700, color: 'text.primary' }}>最后登录</TableCell>
+                          <TableCell sx={{ fontWeight: 700, color: 'text.primary' }}>操作</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
@@ -298,34 +430,51 @@ const AdminDashboard = () => {
                           <TableRow 
                             key={user.id}
                             sx={{ 
+                              '&:hover': {
+                                backgroundColor: alpha('#3498db', 0.02)
+                              },
                               '& > td': { 
-                                py: 2 // 增加行高
+                                py: 2,
+                                fontSize: '0.95rem'
                               }
                             }}
                           >
                             <TableCell>{user.id}</TableCell>
-                            <TableCell>{user.username}</TableCell>
+                            <TableCell sx={{ fontWeight: 500 }}>{user.username}</TableCell>
                             <TableCell>{user.email}</TableCell>
                             <TableCell>
-                              {user.role === 'admin' ? '管理员' : '普通用户'}
-                            </TableCell>
-                            <TableCell>
-                              <Box
+                              <Typography
                                 sx={{
                                   display: 'inline-block',
                                   px: 2,
                                   py: 0.5,
-                                  borderRadius: 1,
-                                  backgroundColor: user.is_active ? 'success.light' : 'error.light',
-                                  color: '#fff'
+                                  borderRadius: '15px',
+                                  backgroundColor: user.role === 'admin' ? '#3f51b5' : '#9fa8da',
+                                  color: '#fff',
+                                  fontSize: '0.85rem',
+                                  fontWeight: 500
+                                }}
+                              >
+                                {user.role === 'admin' ? '管理员' : '普通用户'}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Typography
+                                sx={{
+                                  display: 'inline-block',
+                                  px: 2,
+                                  py: 0.5,
+                                  borderRadius: '15px',
+                                  backgroundColor: user.is_active ? '#2ecc71' : '#e74c3c',
+                                  color: '#fff',
+                                  fontSize: '0.85rem',
+                                  fontWeight: 500
                                 }}
                               >
                                 {user.is_active ? '活跃' : '禁用'}
-                              </Box>
+                              </Typography>
                             </TableCell>
-                            <TableCell>
-                              {user.last_login ? new Date(user.last_login).toLocaleString() : '从未登录'}
-                            </TableCell>
+                            <TableCell>{user.last_login ? new Date(user.last_login).toLocaleString() : '从未登录'}</TableCell>
                             <TableCell>
                               <Box sx={{ display: 'flex', gap: 1 }}>
                                 {user.role !== 'admin' && (
@@ -335,6 +484,17 @@ const AdminDashboard = () => {
                                       size="small"
                                       color={user.is_active ? 'error' : 'primary'}
                                       onClick={() => handleToggleStatus(user)}
+                                      sx={{
+                                        borderRadius: '15px',
+                                        textTransform: 'none',
+                                        minWidth: '80px',
+                                        borderColor: user.is_active ? '#e74c3c' : '#3498db',
+                                        color: user.is_active ? '#e74c3c' : '#3498db',
+                                        '&:hover': {
+                                          borderColor: user.is_active ? '#c0392b' : '#2980b9',
+                                          backgroundColor: user.is_active ? alpha('#e74c3c', 0.1) : alpha('#3498db', 0.1)
+                                        }
+                                      }}
                                     >
                                       {user.is_active ? '禁用' : '启用'}
                                     </Button>
@@ -342,6 +502,17 @@ const AdminDashboard = () => {
                                       variant="outlined"
                                       size="small"
                                       onClick={() => handleOpenResetDialog(user)}
+                                      sx={{
+                                        borderRadius: '15px',
+                                        textTransform: 'none',
+                                        minWidth: '80px',
+                                        borderColor: '#3f51b5',
+                                        color: '#3f51b5',
+                                        '&:hover': {
+                                          borderColor: '#303f9f',
+                                          backgroundColor: alpha('#3f51b5', 0.1)
+                                        }
+                                      }}
                                     >
                                       重置密码
                                     </Button>
@@ -349,6 +520,17 @@ const AdminDashboard = () => {
                                       variant="outlined"
                                       size="small"
                                       onClick={() => handleOpenEditDialog(user)}
+                                      sx={{
+                                        borderRadius: '15px',
+                                        textTransform: 'none',
+                                        minWidth: '80px',
+                                        borderColor: '#3f51b5',
+                                        color: '#3f51b5',
+                                        '&:hover': {
+                                          borderColor: '#303f9f',
+                                          backgroundColor: alpha('#3f51b5', 0.1)
+                                        }
+                                      }}
                                     >
                                       编辑
                                     </Button>
@@ -357,6 +539,17 @@ const AdminDashboard = () => {
                                       size="small"
                                       color="error"
                                       onClick={() => handleDeleteUser(user)}
+                                      sx={{
+                                        borderRadius: '15px',
+                                        textTransform: 'none',
+                                        minWidth: '80px',
+                                        borderColor: '#e74c3c',
+                                        color: '#e74c3c',
+                                        '&:hover': {
+                                          borderColor: '#c0392b',
+                                          backgroundColor: alpha('#e74c3c', 0.1)
+                                        }
+                                      }}
                                     >
                                       删除
                                     </Button>
@@ -376,10 +569,28 @@ const AdminDashboard = () => {
         </Box>
       </Paper>
 
-      {/* 重置密码对话框 */}
-      <Dialog open={resetDialog} onClose={() => setResetDialog(false)}>
-        <DialogTitle>重置用户密码</DialogTitle>
-        <DialogContent>
+      {/* Dialog styles optimization */}
+      <Dialog 
+        open={resetDialog} 
+        onClose={() => setResetDialog(false)}
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.1)'
+          }
+        }}
+      >
+        <DialogTitle sx={{ 
+          borderBottom: '2px solid',
+          borderColor: '#3f51b5',
+          pb: 2,
+          '& .MuiTypography-root': {
+            fontWeight: 700
+          }
+        }}>
+          重置用户密码
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
           <TextField
             autoFocus
             margin="dense"
@@ -388,20 +599,66 @@ const AdminDashboard = () => {
             fullWidth
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                borderRadius: 2,
+                '&.Mui-focused fieldset': {
+                  borderColor: '#3f51b5'
+                }
+              }
+            }}
           />
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setResetDialog(false)}>取消</Button>
-          <Button onClick={handleResetPassword} variant="contained" color="primary">
+        <DialogActions sx={{ p: 2, pt: 0 }}>
+          <Button 
+            onClick={() => setResetDialog(false)}
+            sx={{
+              borderRadius: '20px',
+              px: 3,
+              color: '#3f51b5'
+            }}
+          >
+            取消
+          </Button>
+          <Button 
+            onClick={handleResetPassword} 
+            variant="contained"
+            sx={{
+              borderRadius: '20px',
+              px: 3,
+              background: 'linear-gradient(45deg, #3f51b5 30%, #757de8 90%)',
+              '&:hover': {
+                background: 'linear-gradient(45deg, #303f9f 30%, #5c6bc0 90%)',
+              }
+            }}
+          >
             确认重置
           </Button>
         </DialogActions>
       </Dialog>
 
       {/* 创建用户对话框 */}
-      <Dialog open={createDialog} onClose={() => setCreateDialog(false)}>
-        <DialogTitle>创建新用户</DialogTitle>
-        <DialogContent>
+      <Dialog 
+        open={createDialog} 
+        onClose={() => setCreateDialog(false)}
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.1)'
+          }
+        }}
+      >
+        <DialogTitle sx={{ 
+          borderBottom: '2px solid',
+          borderColor: '#3498db',
+          pb: 2,
+          '& .MuiTypography-root': {
+            fontWeight: 700
+          }
+        }}>
+          创建新用户
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
           <TextField
             margin="dense"
             label="用户名"
@@ -409,6 +666,14 @@ const AdminDashboard = () => {
             required
             value={userFormData.username}
             onChange={(e) => setUserFormData({ ...userFormData, username: e.target.value })}
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                borderRadius: 2,
+                '&.Mui-focused fieldset': {
+                  borderColor: '#3498db'
+                }
+              }
+            }}
           />
           <TextField
             margin="dense"
@@ -418,6 +683,14 @@ const AdminDashboard = () => {
             required
             value={userFormData.email}
             onChange={(e) => setUserFormData({ ...userFormData, email: e.target.value })}
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                borderRadius: 2,
+                '&.Mui-focused fieldset': {
+                  borderColor: '#3498db'
+                }
+              }
+            }}
           />
           <TextField
             margin="dense"
@@ -427,11 +700,39 @@ const AdminDashboard = () => {
             required
             value={userFormData.password}
             onChange={(e) => setUserFormData({ ...userFormData, password: e.target.value })}
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                borderRadius: 2,
+                '&.Mui-focused fieldset': {
+                  borderColor: '#3498db'
+                }
+              }
+            }}
           />
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setCreateDialog(false)}>取消</Button>
-          <Button onClick={handleCreateUser} variant="contained" color="primary">
+        <DialogActions sx={{ p: 2, pt: 0 }}>
+          <Button 
+            onClick={() => setCreateDialog(false)}
+            sx={{
+              borderRadius: '20px',
+              px: 3,
+              color: '#3498db'
+            }}
+          >
+            取消
+          </Button>
+          <Button 
+            onClick={handleCreateUser} 
+            variant="contained"
+            sx={{
+              borderRadius: '20px',
+              px: 3,
+              background: 'linear-gradient(45deg, #3498db 30%, #2980b9 90%)',
+              '&:hover': {
+                background: 'linear-gradient(45deg, #2980b9 30%, #2573a7 90%)',
+              }
+            }}
+          >
             创建
           </Button>
         </DialogActions>

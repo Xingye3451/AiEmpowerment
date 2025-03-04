@@ -22,6 +22,8 @@ import {
   ListItemText,
   ListItemSecondaryAction,
   Chip,
+  Zoom,
+  Fade,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
@@ -149,14 +151,33 @@ const AccountGroups: React.FC = () => {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" gutterBottom>
+      <Typography 
+        variant="h5" 
+        gutterBottom
+        sx={{
+          fontWeight: 'bold',
+          color: theme => theme.palette.primary.main,
+          mb: 3,
+        }}
+      >
         账号分组管理
       </Typography>
 
       {message.content && (
-        <Alert severity={message.type as 'success' | 'error'} sx={{ mb: 2 }}>
-          {message.content}
-        </Alert>
+        <Zoom in={!!message.content}>
+          <Alert 
+            severity={message.type as 'success' | 'error'} 
+            sx={{ 
+              mb: 2,
+              borderRadius: 2,
+              boxShadow: message.type === 'success'
+                ? '0 2px 8px rgba(76, 175, 80, 0.2)'
+                : '0 2px 8px rgba(244, 67, 54, 0.2)',
+            }}
+          >
+            {message.content}
+          </Alert>
+        </Zoom>
       )}
 
       <Button
@@ -168,45 +189,153 @@ const AccountGroups: React.FC = () => {
           setSelectedAccounts([]);
           setOpenDialog(true);
         }}
-        sx={{ mb: 2 }}
+        sx={{
+          mb: 3,
+          background: 'linear-gradient(45deg, #3f51b5 30%, #757de8 90%)',
+          borderRadius: 2,
+          boxShadow: '0 3px 5px 2px rgba(63, 81, 181, .3)',
+          transition: 'transform 0.3s',
+          '&:hover': {
+            transform: 'translateY(-2px)',
+          },
+        }}
       >
         创建新分组
       </Button>
 
-      <TableContainer component={Paper}>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>分组名称</TableCell>
-              <TableCell>账号数量</TableCell>
-              <TableCell>创建时间</TableCell>
-              <TableCell>操作</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {groups.map((group) => (
-              <TableRow key={group.id}>
-                <TableCell>{group.name}</TableCell>
-                <TableCell>{group.accounts.length}</TableCell>
-                <TableCell>
-                  {new Date(group.created_at).toLocaleString()}
-                </TableCell>
-                <TableCell>
-                  <IconButton onClick={() => handleEditGroup(group)}>
-                    <EditIcon />
-                  </IconButton>
-                  <IconButton onClick={() => handleDeleteGroup(group.id)}>
-                    <DeleteIcon />
-                  </IconButton>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
+      <Fade in>
+        <Paper 
+          elevation={3}
+          sx={{
+            background: 'linear-gradient(45deg, #f5f5f5 30%, #ffffff 90%)',
+            borderRadius: 3,
+            boxShadow: '0 3px 5px 2px rgba(0, 0, 0, .1)',
+            overflow: 'hidden',
+          }}
+        >
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell 
+                    sx={{ 
+                      fontWeight: 'bold',
+                      backgroundColor: theme => theme.palette.primary.light,
+                      color: theme => theme.palette.primary.contrastText,
+                    }}
+                  >
+                    分组名称
+                  </TableCell>
+                  <TableCell 
+                    sx={{ 
+                      fontWeight: 'bold',
+                      backgroundColor: theme => theme.palette.primary.light,
+                      color: theme => theme.palette.primary.contrastText,
+                    }}
+                  >
+                    账号数量
+                  </TableCell>
+                  <TableCell 
+                    sx={{ 
+                      fontWeight: 'bold',
+                      backgroundColor: theme => theme.palette.primary.light,
+                      color: theme => theme.palette.primary.contrastText,
+                    }}
+                  >
+                    创建时间
+                  </TableCell>
+                  <TableCell 
+                    sx={{ 
+                      fontWeight: 'bold',
+                      backgroundColor: theme => theme.palette.primary.light,
+                      color: theme => theme.palette.primary.contrastText,
+                    }}
+                  >
+                    操作
+                  </TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {groups.map((group) => (
+                  <TableRow 
+                    key={group.id}
+                    sx={{
+                      transition: 'background-color 0.3s',
+                      '&:hover': {
+                        backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                      },
+                    }}
+                  >
+                    <TableCell sx={{ fontWeight: 500 }}>{group.name}</TableCell>
+                    <TableCell>
+                      <Chip 
+                        label={group.accounts.length}
+                        color="primary"
+                        size="small"
+                        sx={{ 
+                          fontWeight: 'bold',
+                          background: 'linear-gradient(45deg, #3f51b5 30%, #757de8 90%)',
+                        }}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      {new Date(group.created_at).toLocaleString()}
+                    </TableCell>
+                    <TableCell>
+                      <IconButton 
+                        onClick={() => handleEditGroup(group)}
+                        sx={{
+                          color: theme => theme.palette.primary.main,
+                          transition: 'transform 0.2s',
+                          '&:hover': {
+                            transform: 'scale(1.1)',
+                          },
+                        }}
+                      >
+                        <EditIcon />
+                      </IconButton>
+                      <IconButton 
+                        onClick={() => handleDeleteGroup(group.id)}
+                        sx={{
+                          color: theme => theme.palette.error.main,
+                          transition: 'transform 0.2s',
+                          '&:hover': {
+                            transform: 'scale(1.1)',
+                          },
+                        }}
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Paper>
+      </Fade>
 
-      <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="md" fullWidth>
-        <DialogTitle>
+      <Dialog 
+        open={openDialog} 
+        onClose={() => setOpenDialog(false)} 
+        maxWidth="md" 
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            background: 'linear-gradient(45deg, #f5f5f5 30%, #ffffff 90%)',
+            boxShadow: '0 3px 5px 2px rgba(0, 0, 0, .2)',
+          }
+        }}
+      >
+        <DialogTitle
+          sx={{
+            fontWeight: 'bold',
+            color: theme => theme.palette.primary.main,
+            borderBottom: '1px solid rgba(0, 0, 0, 0.12)',
+            pb: 2,
+          }}
+        >
           {editingGroup ? '编辑分组' : '创建新分组'}
         </DialogTitle>
         <DialogContent>
@@ -215,32 +344,92 @@ const AccountGroups: React.FC = () => {
             label="分组名称"
             value={groupName}
             onChange={(e) => setGroupName(e.target.value)}
-            sx={{ mb: 2, mt: 2 }}
+            sx={{
+              mt: 2,
+              mb: 2,
+              '& .MuiOutlinedInput-root': {
+                borderRadius: 2,
+                backgroundColor: '#ffffff',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+              },
+            }}
           />
-          <Typography variant="subtitle1" gutterBottom>
+          <Typography 
+            variant="subtitle1" 
+            gutterBottom
+            sx={{
+              fontWeight: 'bold',
+              color: theme => theme.palette.primary.main,
+            }}
+          >
             选择账号
           </Typography>
-          <List>
+          <List sx={{ maxHeight: 400, overflow: 'auto' }}>
             {accounts.map((account) => (
-              <ListItem key={account.username} dense button onClick={() => toggleAccount(account.username)}>
-                <ListItemText primary={account.username} />
+              <ListItem 
+                key={account.username} 
+                dense 
+                button 
+                onClick={() => toggleAccount(account.username)}
+                sx={{
+                  borderRadius: 1,
+                  mb: 0.5,
+                  transition: 'all 0.3s',
+                  '&:hover': {
+                    backgroundColor: 'rgba(63, 81, 181, 0.08)',
+                  },
+                }}
+              >
+                <ListItemText 
+                  primary={account.username}
+                  sx={{
+                    '& .MuiTypography-root': {
+                      fontWeight: selectedAccounts.includes(account.username) ? 'bold' : 'normal',
+                    },
+                  }}
+                />
                 <ListItemSecondaryAction>
                   <Chip
                     label={selectedAccounts.includes(account.username) ? '已选择' : '未选择'}
                     color={selectedAccounts.includes(account.username) ? 'primary' : 'default'}
                     onClick={() => toggleAccount(account.username)}
+                    sx={{
+                      transition: 'all 0.3s',
+                      ...(selectedAccounts.includes(account.username) && {
+                        background: 'linear-gradient(45deg, #3f51b5 30%, #757de8 90%)',
+                      }),
+                    }}
                   />
                 </ListItemSecondaryAction>
               </ListItem>
             ))}
           </List>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setOpenDialog(false)}>取消</Button>
+        <DialogActions sx={{ p: 3, borderTop: '1px solid rgba(0, 0, 0, 0.12)' }}>
+          <Button 
+            onClick={() => setOpenDialog(false)}
+            sx={{
+              borderRadius: 2,
+              px: 3,
+              color: theme => theme.palette.text.secondary,
+            }}
+          >
+            取消
+          </Button>
           <Button
             onClick={editingGroup ? handleUpdateGroup : handleCreateGroup}
             variant="contained"
             color="primary"
+            sx={{
+              borderRadius: 2,
+              px: 3,
+              background: 'linear-gradient(45deg, #3f51b5 30%, #757de8 90%)',
+              boxShadow: '0 3px 5px 2px rgba(63, 81, 181, .3)',
+              transition: 'transform 0.3s',
+              '&:hover': {
+                transform: 'translateY(-1px)',
+              },
+            }}
           >
             {editingGroup ? '更新' : '创建'}
           </Button>
