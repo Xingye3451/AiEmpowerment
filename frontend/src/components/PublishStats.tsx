@@ -44,7 +44,12 @@ const PublishStats: React.FC = () => {
     try {
       setLoading(true);
       setError('');
-      const response = await axios.get<StatsData>(DOUYIN_API.STATS);
+      const token = localStorage.getItem('token');
+      const response = await axios.get<StatsData>(DOUYIN_API.STATS, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
       setStats(response.data);
     } catch (error: any) {
       setError(error.response?.data?.detail || '获取统计信息失败');

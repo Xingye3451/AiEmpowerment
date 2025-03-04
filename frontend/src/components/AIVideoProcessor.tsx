@@ -60,6 +60,7 @@ interface VideoPreview {
     width: number;
     height: number;
   };
+  uploadPath?: string;
 }
 
 const AIVideoProcessor: React.FC = () => {
@@ -81,15 +82,36 @@ const AIVideoProcessor: React.FC = () => {
 
   // 生成视频预览
   const generateVideoPreviews = async (files: FileList) => {
-    const previews: VideoPreview[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const previewUrl = URL.createObjectURL(file);
-      previews.push({ file, previewUrl });
-    }
-    setVideoPreviews(previews);
-    if (previews.length > 0) {
-      setIsAreaSelectionOpen(true);
+    try {
+      const previews: VideoPreview[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        // 首先上传视频文件
+        const formData = new FormData();
+        formData.append('video', file);
+        formData.append('title', file.name);
+        
+        const uploadResponse = await axios.post(DOUYIN_API.UPLOAD_VIDEO, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        });
+
+        if (uploadResponse.data.success) {
+          previews.push({ 
+            file, 
+            previewUrl: uploadResponse.data.preview_url,
+            uploadPath: uploadResponse.data.file_path
+          });
+        }
+      }
+      setVideoPreviews(previews);
+      if (previews.length > 0) {
+        setIsAreaSelectionOpen(true);
+      }
+    } catch (error: any) {
+      setError(error.response?.data?.detail || '生成视频预览失败');
     }
   };
 
@@ -116,6 +138,23 @@ const AIVideoProcessor: React.FC = () => {
     setStartPos({ x, y });
   };
 
+  useEffect(() => {
+    if (isAreaSelectionOpen && canvasRef.current) {
+      const ctx = canvasRef.current.getContext('2d');
+      if (!ctx) return;
+
+      const img = new Image();
+      img.src = videoPreviews[currentPreviewIndex].previewUrl;
+      img.onload = () => {
+        if (!canvasRef.current) return;
+        // 清除画布
+        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+        // 绘制图片
+        ctx.drawImage(img, 0, 0, canvasRef.current.width, canvasRef.current.height);
+      };
+    }
+  }, [currentPreviewIndex, isAreaSelectionOpen]);
+
   const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!isDrawing || !canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
@@ -128,10 +167,10 @@ const AIVideoProcessor: React.FC = () => {
     // 清除之前的绘制
     ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
     
-    // 绘制视频帧
-    const video = document.createElement('video');
-    video.src = videoPreviews[currentPreviewIndex].previewUrl;
-    ctx.drawImage(video, 0, 0, canvasRef.current.width, canvasRef.current.height);
+    // 重新绘制图片
+    const img = new Image();
+    img.src = videoPreviews[currentPreviewIndex].previewUrl;
+    ctx.drawImage(img, 0, 0, canvasRef.current.width, canvasRef.current.height);
     
     // 绘制选择框
     ctx.strokeStyle = '#00ff00';
@@ -177,19 +216,6 @@ const AIVideoProcessor: React.FC = () => {
       setCurrentPreviewIndex(currentPreviewIndex - 1);
     }
   };
-
-  useEffect(() => {
-    if (isAreaSelectionOpen && canvasRef.current) {
-      const video = document.createElement('video');
-      video.src = videoPreviews[currentPreviewIndex].previewUrl;
-      video.onloadeddata = () => {
-        if (!canvasRef.current) return;
-        const ctx = canvasRef.current.getContext('2d');
-        if (!ctx) return;
-        ctx.drawImage(video, 0, 0, canvasRef.current.width, canvasRef.current.height);
-      };
-    }
-  }, [currentPreviewIndex, isAreaSelectionOpen]);
 
   const handleSubmit = async () => {
     if (!selectedFiles || selectedFiles.length === 0) {

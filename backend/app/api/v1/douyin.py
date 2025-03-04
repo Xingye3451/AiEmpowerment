@@ -10,6 +10,7 @@ import mimetypes
 from pathlib import Path
 import subprocess
 import asyncio
+import logging
 
 from app.core.deps import get_db, get_current_user
 from app.schemas.user import (
@@ -25,6 +26,8 @@ from app.schemas.user import (
 )
 from app.models.user import User
 from app.core.task_queue import TaskQueue, Task, TaskStatus
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -90,33 +93,58 @@ async def upload_video(
     description: str = Form(None),
     current_user: User = Depends(get_current_user),
 ):
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    original_filename = f"{timestamp}_{video.filename}"
-    file_path = os.path.join(UPLOAD_DIR, original_filename)
-
     try:
-        # 创建目录（如果不存在）
+        # 生成时间戳文件名
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        original_filename = f"{timestamp}_{video.filename}"
+        file_path = os.path.join(UPLOAD_DIR, original_filename)
+        static_video_path = os.path.join("static/videos", original_filename)
+
+        # 确保目录存在
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        os.makedirs(os.path.dirname(static_video_path), exist_ok=True)
 
         # 保存上传的视频文件
-        with open(file_path, "wb+") as file_object:
+        try:
             content = await video.read()
-            file_object.write(content)
+            with open(file_path, "wb+") as file_object:
+                file_object.write(content)
+        except Exception as e:
+            logger.error(f"保存视频文件失败: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"保存视频文件失败: {str(e)}")
 
-        # 创建到静态目录的软链接
-        static_video_path = os.path.join("static/videos", original_filename)
-        if os.path.exists(static_video_path):
-            os.remove(static_video_path)
-        os.symlink(os.path.abspath(file_path), static_video_path)
-
-        # 生成预览图
+        # 创建预览图
         preview_filename = f"{os.path.splitext(original_filename)[0]}.jpg"
         preview_path = os.path.join(PREVIEW_DIR, preview_filename)
 
         try:
+            # 检查是否安装了ffmpeg
+            try:
+                ffmpeg_path = (
+                    subprocess.check_output(["which", "ffmpeg"]).decode().strip()
+                )
+            except subprocess.CalledProcessError:
+                # 如果找不到ffmpeg，尝试使用常见的安装路径
+                common_paths = [
+                    "/usr/local/bin/ffmpeg",
+                    "/opt/homebrew/bin/ffmpeg",
+                    "/usr/bin/ffmpeg",
+                ]
+                ffmpeg_path = None
+                for path in common_paths:
+                    if os.path.exists(path):
+                        ffmpeg_path = path
+                        break
+
+                if not ffmpeg_path:
+                    logger.error("找不到ffmpeg，请确保已安装")
+                    raise HTTPException(
+                        status_code=500, detail="服务器未安装ffmpeg，请联系管理员安装"
+                    )
+
             # 使用ffmpeg生成预览图
             cmd = [
-                "ffmpeg",
+                ffmpeg_path,
                 "-i",
                 file_path,
                 "-ss",
@@ -127,9 +155,31 @@ async def upload_video(
                 "scale=480:-1",
                 preview_path,
             ]
-            subprocess.run(cmd, check=True, capture_output=True)
+            process = subprocess.run(cmd, check=True, capture_output=True, text=True)
+
+            if process.returncode != 0:
+                logger.error(f"生成预览图失败: {process.stderr}")
+                raise HTTPException(
+                    status_code=500, detail=f"生成预览图失败: {process.stderr}"
+                )
+
+        except subprocess.CalledProcessError as e:
+            logger.error(f"执行ffmpeg命令失败: {e.stderr}")
+            raise HTTPException(status_code=500, detail=f"生成预览图失败: {e.stderr}")
         except Exception as e:
-            logger.warning(f"生成预览图失败: {str(e)}")
+            logger.error(f"生成预览图时发生错误: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"生成预览图失败: {str(e)}")
+
+        # 复制文件到静态目录而不是创建软链接
+        try:
+            import shutil
+
+            shutil.copy2(file_path, static_video_path)
+        except Exception as e:
+            logger.error(f"复制文件到静态目录失败: {str(e)}")
+            raise HTTPException(
+                status_code=500, detail=f"复制文件到静态目录失败: {str(e)}"
+            )
 
         return {
             "success": True,
@@ -139,7 +189,11 @@ async def upload_video(
             "title": title,
             "description": description,
         }
+
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"处理视频上传请求失败: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
