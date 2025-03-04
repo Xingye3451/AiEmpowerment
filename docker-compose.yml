@@ -4,12 +4,12 @@ services:
     container_name: aiempowerment-backend
     volumes:
       - ./backend/app.db:/app/app.db
-      - ./backend/config:/app/config  # 挂载配置目录
-      - ./backend/uploads:/app/uploads  # 挂载上传目录
-      - ./backend/static:/app/static  # 挂载静态文件目录
+      - ./backend/config:/app/config
+      - ./backend/uploads:/app/uploads
+      - ./backend/static:/app/static
     environment:
-      - CONFIG_FILE=/app/config/default.yaml  # 指定配置文件路径
-      - SECRET_KEY=your-secret-key-here  # 在生产环境中应该使用更安全的方式
+      - CONFIG_FILE=/app/config/default.yaml
+      - SECRET_KEY=your-secret-key-here
     ports:
       - "8000:8000"
     networks:
@@ -32,8 +32,15 @@ services:
       retries: 3
 
   frontend:
-    build: ./frontend
+    build: 
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - REACT_APP_ENV=production
+        - REACT_APP_API_URL=/api/v1
     container_name: aiempowerment-frontend
+    volumes:
+      - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     ports:
       - "80:80"
     networks:
@@ -49,6 +56,11 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     depends_on:
       - backend
 
