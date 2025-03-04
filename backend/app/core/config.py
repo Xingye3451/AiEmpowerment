@@ -1,4 +1,4 @@
-from pydantic import BaseSettings
+from pydantic_settings import BaseSettings
 from typing import Optional, List
 import os
 from functools import lru_cache
@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     RUNWAY_API_KEY: str = ""
     COQUI_API_KEY: str = ""
     SADTALKER_API_KEY: str = ""
+
+    model_config = {
+        "case_sensitive": True,
+        "env_file": ".env",
+    }
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -95,10 +100,6 @@ class Settings(BaseSettings):
         db_path = os.path.abspath(self.DB_FILE)
         self.DATABASE_URL = f"sqlite+aiosqlite:///{db_path}"
         self.SYNC_DATABASE_URL = f"sqlite:///{db_path}"
-
-    class Config:
-        case_sensitive = True
-        env_file = ".env"
 
 @lru_cache()
 def get_settings() -> Settings:

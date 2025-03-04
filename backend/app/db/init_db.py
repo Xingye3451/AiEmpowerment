@@ -2,6 +2,7 @@ import sys
 import os
 import asyncio
 from pathlib import Path
+from sqlalchemy import text, select
 
 # 将项目根目录添加到 Python 路径中
 backend_dir = Path(__file__).resolve().parent.parent.parent
@@ -21,11 +22,11 @@ async def init_db():
 async def create_admin():
     """创建管理员账号"""
     async with AsyncSession(engine) as session:
-        # 检查管理员是否已存在
+        # 使用 SQLAlchemy ORM 查询语法替代原始 SQL
         result = await session.execute(
-            "SELECT * FROM users WHERE username = 'admin'"
+            select(User).where(User.username == "admin")
         )
-        admin = result.first()
+        admin = result.scalars().first()
         
         if not admin:
             admin_user = User(

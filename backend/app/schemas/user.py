@@ -1,10 +1,10 @@
 from typing import List, Optional, Dict
-from pydantic import BaseModel, EmailStr, ConfigDict
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 
 class UserBase(BaseModel):
     username: str
-    email: EmailStr
+    email: str  # Changed from EmailStr to str
     model_config = ConfigDict(from_attributes=True)  # 新版pydantic配置
 
 class UserCreate(UserBase):
@@ -12,7 +12,7 @@ class UserCreate(UserBase):
 
 class UserUpdate(BaseModel):
     username: Optional[str] = None
-    email: Optional[EmailStr] = None
+    email: Optional[str] = None  # Changed from EmailStr to str
     model_config = ConfigDict(from_attributes=True)
 
 class User(UserBase):
@@ -91,7 +91,7 @@ class DouyinStats(BaseModel):
     account_stats: Dict[str, Dict[str, int]]
 
 class PasswordReset(BaseModel):
-    email: EmailStr
+    email: str  # Changed from EmailStr to str
 
 class PasswordResetVerify(BaseModel):
     token: str

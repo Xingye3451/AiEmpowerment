@@ -6,6 +6,7 @@ python-multipart
 # Database
 sqlalchemy>=1.4.23
 aiosqlite>=0.17.0
+greenlet>=2.0.0  # 支持 SQLAlchemy 异步操作
 
 # Security
 python-jose[cryptography]>=3.3.0
@@ -13,6 +14,8 @@ passlib[bcrypt]>=1.7.4
 
 # Utils
 pydantic>=1.8.0
+pydantic-settings>=2.0.0  # Pydantic v2 中 BaseSettings 的新位置
+email-validator>=2.0.0  # Added for Pydantic email validation
 python-dotenv>=0.19.0
 pyyaml>=5.4.1
 

@@ -11,6 +11,7 @@ from app.db.database import engine, AsyncSession, Base
 from app.models.user import User
 from app.core.security import get_password_hash
 from app.core.config import settings
+from sqlalchemy import text
 
 async def init_db():
     """初始化数据库表结构"""
@@ -30,7 +31,7 @@ async def create_admin():
         async with AsyncSession(engine) as session:
             # 检查管理员是否已存在
             result = await session.execute(
-                "SELECT * FROM users WHERE username = 'admin'"
+                text("SELECT * FROM users WHERE username = 'admin'")
             )
             admin = result.first()
             
