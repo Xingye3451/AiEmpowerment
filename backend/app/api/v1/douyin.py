@@ -94,6 +94,8 @@ async def upload_video(
     current_user: User = Depends(get_current_user),
 ):
     try:
+        logger.info(f"处理视频上传: {video.filename}, 用户: {current_user.username}")
+
         # 生成时间戳文件名
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         original_filename = f"{timestamp}_{video.filename}"
@@ -103,12 +105,16 @@ async def upload_video(
         # 确保目录存在
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         os.makedirs(os.path.dirname(static_video_path), exist_ok=True)
+        os.makedirs(PREVIEW_DIR, exist_ok=True)
+
+        logger.info(f"保存视频到: {file_path}")
 
         # 保存上传的视频文件
         try:
             content = await video.read()
             with open(file_path, "wb+") as file_object:
                 file_object.write(content)
+            logger.info(f"视频文件保存成功: {file_path}, 大小: {len(content)} 字节")
         except Exception as e:
             logger.error(f"保存视频文件失败: {str(e)}")
             raise HTTPException(status_code=500, detail=f"保存视频文件失败: {str(e)}")
@@ -116,6 +122,7 @@ async def upload_video(
         # 创建预览图
         preview_filename = f"{os.path.splitext(original_filename)[0]}.jpg"
         preview_path = os.path.join(PREVIEW_DIR, preview_filename)
+        logger.info(f"将生成预览图: {preview_path}")
 
         try:
             # 检查是否安装了ffmpeg
@@ -123,6 +130,7 @@ async def upload_video(
                 ffmpeg_path = (
                     subprocess.check_output(["which", "ffmpeg"]).decode().strip()
                 )
+                logger.info(f"找到ffmpeg路径: {ffmpeg_path}")
             except subprocess.CalledProcessError:
                 # 如果找不到ffmpeg，尝试使用常见的安装路径
                 common_paths = [
@@ -134,6 +142,7 @@ async def upload_video(
                 for path in common_paths:
                     if os.path.exists(path):
                         ffmpeg_path = path
+                        logger.info(f"使用备选ffmpeg路径: {ffmpeg_path}")
                         break
 
                 if not ffmpeg_path:
@@ -155,6 +164,7 @@ async def upload_video(
                 "scale=480:-1",
                 preview_path,
             ]
+            logger.info(f"执行ffmpeg命令: {' '.join(cmd)}")
             process = subprocess.run(cmd, check=True, capture_output=True, text=True)
 
             if process.returncode != 0:
@@ -162,6 +172,17 @@ async def upload_video(
                 raise HTTPException(
                     status_code=500, detail=f"生成预览图失败: {process.stderr}"
                 )
+
+            # 检查预览图是否成功生成
+            if not os.path.exists(preview_path) or os.path.getsize(preview_path) == 0:
+                logger.error(f"预览图生成失败或为空: {preview_path}")
+                raise HTTPException(
+                    status_code=500, detail="预览图生成失败，请检查视频格式"
+                )
+
+            logger.info(
+                f"预览图生成成功: {preview_path}, 大小: {os.path.getsize(preview_path)} 字节"
+            )
 
         except subprocess.CalledProcessError as e:
             logger.error(f"执行ffmpeg命令失败: {e.stderr}")
@@ -175,17 +196,39 @@ async def upload_video(
             import shutil
 
             shutil.copy2(file_path, static_video_path)
+            logger.info(f"视频文件已复制到静态目录: {static_video_path}")
         except Exception as e:
             logger.error(f"复制文件到静态目录失败: {str(e)}")
             raise HTTPException(
                 status_code=500, detail=f"复制文件到静态目录失败: {str(e)}"
             )
 
+        preview_url = f"/static/previews/{preview_filename}"
+        video_url = f"/static/videos/{original_filename}"
+        logger.info(f"上传成功，预览URL: {preview_url}, 视频URL: {video_url}")
+
+        # 检查预览图是否存在
+        if not os.path.exists(os.path.join(PREVIEW_DIR, preview_filename)):
+            logger.error(f"预览图文件不存在: {preview_path}")
+            raise HTTPException(
+                status_code=500, detail="预览图生成失败，请检查服务器日志"
+            )
+
+        # 检查视频文件是否存在
+        if not os.path.exists(static_video_path):
+            logger.error(f"静态视频文件不存在: {static_video_path}")
+            raise HTTPException(
+                status_code=500, detail="视频文件复制失败，请检查服务器日志"
+            )
+
+        # 获取服务器基础URL
+        base_url = "http://localhost:8000"  # 默认本地开发环境
+
         return {
             "success": True,
             "file_path": file_path,
-            "preview_url": f"/static/previews/{preview_filename}",
-            "video_url": f"/static/videos/{original_filename}",
+            "preview_url": f"{base_url}{preview_url}",
+            "video_url": f"{base_url}{video_url}",
             "title": title,
             "description": description,
         }
@@ -424,12 +467,19 @@ async def get_stats(current_user: User = Depends(get_current_user)):
 async def preview_video(
     video_path: str = Form(...), current_user: User = Depends(get_current_user)
 ):
+    logger.info(f"生成预览图请求: {video_path}")
+
     if not os.path.exists(video_path):
+        logger.error(f"视频文件不存在: {video_path}")
         raise HTTPException(status_code=400, detail="视频文件不存在")
+
+    # 确保预览目录存在
+    os.makedirs(PREVIEW_DIR, exist_ok=True)
 
     # 生成预览图
     preview_filename = f"{os.path.splitext(os.path.basename(video_path))[0]}.jpg"
     preview_path = os.path.join(PREVIEW_DIR, preview_filename)
+    logger.info(f"预览图路径: {preview_path}")
 
     try:
         # 使用ffmpeg生成预览图
@@ -445,7 +495,15 @@ async def preview_video(
             "scale=480:-1",  # 将宽度调整为480，高度按比例缩放
             preview_path,
         ]
-        subprocess.run(cmd, check=True, capture_output=True)
+        logger.info(f"执行命令: {' '.join(cmd)}")
+        result = subprocess.run(cmd, check=True, capture_output=True)
+        logger.info(f"命令执行结果: {result.returncode}")
+
+        if not os.path.exists(preview_path) or os.path.getsize(preview_path) == 0:
+            logger.error(f"预览图生成失败，文件不存在或为空: {preview_path}")
+            raise HTTPException(
+                status_code=500, detail="预览图生成失败，请检查视频格式"
+            )
 
         # 获取视频信息
         duration = get_video_duration(video_path)
@@ -455,10 +513,15 @@ async def preview_video(
         preview_url = f"/static/previews/{preview_filename}"
         video_url = f"/static/videos/{os.path.basename(video_path)}"
 
+        logger.info(f"预览URL: {preview_url}, 视频URL: {video_url}")
+
+        # 获取服务器基础URL
+        base_url = "http://localhost:8000"  # 默认本地开发环境
+
         return {
             "success": True,
-            "preview_url": preview_url,
-            "video_url": video_url,
+            "preview_url": f"{base_url}{preview_url}",
+            "video_url": f"{base_url}{video_url}",
             "video_info": {
                 "path": video_path,
                 "size": file_size,
@@ -469,19 +532,42 @@ async def preview_video(
                 ).isoformat(),
             },
         }
+    except subprocess.CalledProcessError as e:
+        error_msg = f"ffmpeg命令执行失败: {e.stderr.decode() if e.stderr else str(e)}"
+        logger.error(error_msg)
+        raise HTTPException(status_code=500, detail=error_msg)
     except Exception as e:
-        logger.error(f"生成预览失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"生成预览失败: {str(e)}")
+        error_msg = f"生成预览失败: {str(e)}"
+        logger.error(error_msg)
+        raise HTTPException(status_code=500, detail=error_msg)
 
 
 @router.get("/video/{filename}")
 async def stream_video(filename: str, current_user: User = Depends(get_current_user)):
+    logger.info(f"获取视频请求: {filename}")
+
+    # 首先检查上传目录
     video_path = os.path.join(UPLOAD_DIR, filename)
     if not os.path.exists(video_path):
-        raise HTTPException(status_code=404, detail="视频文件不存在")
+        # 如果上传目录中不存在，检查静态目录
+        static_video_path = os.path.join("static/videos", filename)
+        if os.path.exists(static_video_path):
+            video_path = static_video_path
+            logger.info(f"在静态目录中找到视频: {video_path}")
+        else:
+            logger.error(f"视频文件不存在: {video_path} 或 {static_video_path}")
+            raise HTTPException(status_code=404, detail="视频文件不存在")
 
     # 获取文件大小
     file_size = os.path.getsize(video_path)
+    logger.info(f"返回视频: {video_path}, 大小: {file_size} 字节")
+
+    # 获取正确的MIME类型
+    content_type = mimetypes.guess_type(filename)[0]
+    if not content_type:
+        content_type = "video/mp4"  # 默认为MP4
+
+    logger.info(f"视频内容类型: {content_type}")
 
     # 设置响应头，支持范围请求
     headers = {
@@ -489,11 +575,20 @@ async def stream_video(filename: str, current_user: User = Depends(get_current_u
         "Content-Length": str(file_size),
         "Cache-Control": "public, max-age=3600",
         "Content-Disposition": f'inline; filename="{filename}"',
+        "Access-Control-Allow-Origin": "*",  # 允许跨域访问
     }
 
+    # 对于小视频文件，直接返回内容
+    if file_size < 10 * 1024 * 1024:  # 小于10MB的文件
+        with open(video_path, "rb") as f:
+            content = f.read()
+
+        return Response(content=content, media_type=content_type, headers=headers)
+
+    # 对于大文件，仍然使用FileResponse
     return FileResponse(
         video_path,
-        media_type=mimetypes.guess_type(filename)[0],
+        media_type=content_type,
         filename=filename,
         headers=headers,
     )
@@ -503,15 +598,43 @@ async def stream_video(filename: str, current_user: User = Depends(get_current_u
 async def get_preview_image(
     filename: str, current_user: User = Depends(get_current_user)
 ):
+    logger.info(f"获取预览图请求: {filename}")
     preview_path = os.path.join(PREVIEW_DIR, filename)
+
     if not os.path.exists(preview_path):
+        logger.error(f"预览图不存在: {preview_path}")
+        # 尝试查找类似名称的文件
+        dir_files = os.listdir(PREVIEW_DIR)
+        similar_files = [f for f in dir_files if filename.lower() in f.lower()]
+        if similar_files:
+            logger.info(f"找到类似名称的文件: {similar_files}")
+            return {
+                "error": "预览图不存在",
+                "similar_files": similar_files,
+                "requested_file": filename,
+            }
         raise HTTPException(status_code=404, detail="预览图不存在")
 
-    return FileResponse(
-        preview_path,
-        media_type="image/jpeg",
-        headers={"Cache-Control": "public, max-age=3600"},
-    )
+    file_size = os.path.getsize(preview_path)
+    if file_size == 0:
+        logger.error(f"预览图文件为空: {preview_path}")
+        raise HTTPException(status_code=500, detail="预览图文件为空")
+
+    logger.info(f"返回预览图: {preview_path}, 大小: {file_size} 字节")
+
+    # 设置响应头，确保正确的缓存控制和内容类型
+    headers = {
+        "Cache-Control": "public, max-age=3600",
+        "Content-Disposition": f'inline; filename="{filename}"',
+        "Content-Type": "image/jpeg",
+        "Access-Control-Allow-Origin": "*",  # 允许跨域访问
+    }
+
+    # 直接读取文件内容并返回，而不是使用FileResponse
+    with open(preview_path, "rb") as f:
+        content = f.read()
+
+    return Response(content=content, media_type="image/jpeg", headers=headers)
 
 
 def get_video_duration(video_path: str) -> float:

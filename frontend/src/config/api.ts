@@ -1,8 +1,15 @@
 // API 基础配置
 const isDevelopment = process.env.NODE_ENV === 'development';
-const LOCAL_API_BASE = 'http://localhost:8000';
 
-export const BASE_URL = isDevelopment ? `${LOCAL_API_BASE}/api/v1` : '/api/v1';
+// 从环境变量获取API基础URL，如果不存在则使用相对路径或本地开发地址
+const API_BASE = process.env.REACT_APP_API_BASE_URL || 
+                (isDevelopment ? 'http://localhost:8000' : '');
+
+// 构建最终的API基础URL
+// 如果API_BASE为空，则使用相对路径，这样可以适应任何部署环境
+export const BASE_URL = API_BASE ? 
+                        `${API_BASE}/api/v1` : 
+                        '/api/v1';
 
 // Auth API 路径配置
 export const AUTH_API = {

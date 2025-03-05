@@ -12,7 +12,11 @@ app = FastAPI(title=settings.PROJECT_NAME)
 # 配置CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],  # 允许的前端域名
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "*",
+    ],  # 允许的前端域名，添加通配符以便测试
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -25,8 +29,22 @@ os.makedirs("static/previews", exist_ok=True)
 os.makedirs("uploads/videos", exist_ok=True)
 os.makedirs("uploads/processed_videos", exist_ok=True)
 
+# 打印目录路径，便于调试
+print(f"静态文件目录: {os.path.abspath('static')}")
+print(f"上传文件目录: {os.path.abspath('uploads')}")
+
 # 挂载静态文件目录
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+# 添加中间件，打印所有请求信息，便于调试
+@app.middleware("http")
+async def log_requests(request, call_next):
+    print(f"请求: {request.method} {request.url}")
+    response = await call_next(request)
+    print(f"响应: {response.status_code}")
+    return response
+
 
 # 获取任务队列实例
 task_queue = TaskQueue()
