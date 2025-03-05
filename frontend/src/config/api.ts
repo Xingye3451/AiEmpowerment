@@ -13,8 +13,8 @@ export const BASE_URL = API_BASE ?
 
 // Auth API 路径配置
 export const AUTH_API = {
-    LOGIN: `${BASE_URL}/login`,
-    ADMIN_LOGIN: `${BASE_URL}/login/admin`,
+    LOGIN: `${BASE_URL}/auth/login`,
+    ADMIN_LOGIN: `${BASE_URL}/auth/login/admin`,
 };
 
 // User API 路径配置
@@ -29,10 +29,11 @@ export const USER_API = {
 export const ADMIN_API = {
     USERS: `${BASE_URL}/admin/users`,
     CHANGE_PASSWORD: `${BASE_URL}/admin/change-password`,
-    USER_STATUS: (userId: number) => `${BASE_URL}/admin/users/${userId}/toggle-status`,
-    USER_PASSWORD_RESET: (userId: number) => `${BASE_URL}/admin/users/${userId}/reset-password`,
-    DELETE_USER: (userId: number) => `${BASE_URL}/admin/users/${userId}`,
-    UPDATE_USER: (userId: number) => `${BASE_URL}/admin/users/${userId}`,
+    CHECK_ROLE: `${BASE_URL}/admin/check-role`,
+    USER_STATUS: (userId: string) => `${BASE_URL}/admin/users/${userId}/toggle-status`,
+    USER_PASSWORD_RESET: (userId: string) => `${BASE_URL}/admin/users/${userId}/reset-password`,
+    DELETE_USER: (userId: string) => `${BASE_URL}/admin/users/${userId}`,
+    UPDATE_USER: (userId: string) => `${BASE_URL}/admin/users/${userId}`,
 };
 
 // Douyin API 路径配置
@@ -53,4 +54,9 @@ export const DOUYIN_API = {
     // 新增的视频处理相关API
     BATCH_PROCESS_VIDEOS: `${BASE_URL}/douyin/batch-process-videos`,
     PROCESS_STATUS: (taskId: string) => `${BASE_URL}/douyin/process-status/${taskId}`,
+    // 处理模式相关API
+    CHECK_LOCAL_PROCESSING: `${BASE_URL}/douyin/check-local-processing`,
+    // 处理后视频相关API
+    PROCESSED_VIDEO: (taskId: string) => `${BASE_URL}/douyin/processed-video/${taskId}`,
+    PROCESSED_VIDEO_THUMBNAIL: (taskId: string) => `${BASE_URL}/douyin/processed-video-thumbnail/${taskId}`,
 };

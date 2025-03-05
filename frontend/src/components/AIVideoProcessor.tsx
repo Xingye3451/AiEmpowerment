@@ -29,7 +29,12 @@ import {
   Stepper,
   Step,
   StepLabel,
-  Grid
+  Grid,
+  RadioGroup,
+  Radio,
+  FormControl,
+  FormLabel,
+  Switch
 } from '@mui/material';
 import { 
   CloudUpload as CloudUploadIcon,
@@ -39,7 +44,9 @@ import {
   Refresh as RefreshIcon,
   NavigateNext as NavigateNextIcon,
   NavigateBefore as NavigateBeforeIcon,
-  Close as CloseIcon
+  Close as CloseIcon,
+  Cloud as CloudIcon,
+  Computer as ComputerIcon
 } from '@mui/icons-material';
 import axios from 'axios';
 import { DOUYIN_API } from '../config/api';
@@ -84,6 +91,8 @@ const AIVideoProcessor: React.FC = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadSuccess, setUploadSuccess] = useState(false);
+  const [processingMode, setProcessingMode] = useState<'cloud' | 'local'>('cloud');
+  const [localProcessingAvailable, setLocalProcessingAvailable] = useState<boolean>(false);
 
   const adjustCanvasSize = () => {
     if (canvasRef.current && imgRef.current && imgRef.current.complete) {
@@ -368,6 +377,7 @@ const AIVideoProcessor: React.FC = () => {
     formData.append('text', text);
     formData.append('remove_subtitles', removeSubtitles.toString());
     formData.append('generate_subtitles', generateSubtitles.toString());
+    formData.append('processing_mode', processingMode);
 
     try {
       const response = await axios.post(DOUYIN_API.BATCH_PROCESS_VIDEOS, formData, {
@@ -395,6 +405,33 @@ const AIVideoProcessor: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    const checkLocalProcessingAvailability = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+        
+        const response = await axios.get(DOUYIN_API.CHECK_LOCAL_PROCESSING, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        
+        if (response.data && typeof response.data === 'object' && 'available' in response.data) {
+          setLocalProcessingAvailable(response.data.available);
+        } else {
+          console.error('本地处理可用性数据格式不正确:', response.data);
+          setLocalProcessingAvailable(false);
+        }
+      } catch (error) {
+        console.error('检查本地处理可用性失败:', error);
+        setLocalProcessingAvailable(false);
+      }
+    };
+    
+    checkLocalProcessingAvailability();
+  }, []);
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
       <Card 
@@ -417,6 +454,53 @@ const AIVideoProcessor: React.FC = () => {
           >
             AI视频处理
           </Typography>
+
+          <Box sx={{ mb: 3, p: 2, bgcolor: 'rgba(63, 81, 181, 0.04)', borderRadius: 2 }}>
+            <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'medium' }}>
+              处理模式
+            </Typography>
+            
+            <FormControl component="fieldset">
+              <RadioGroup
+                row
+                value={processingMode}
+                onChange={(e) => setProcessingMode(e.target.value as 'cloud' | 'local')}
+              >
+                <FormControlLabel 
+                  value="cloud" 
+                  control={<Radio />} 
+                  label={
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <CloudIcon sx={{ mr: 1, color: theme.palette.primary.main }} />
+                      <Typography>云服务处理</Typography>
+                    </Box>
+                  }
+                />
+                <FormControlLabel 
+                  value="local" 
+                  disabled={!localProcessingAvailable}
+                  control={<Radio />} 
+                  label={
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <ComputerIcon sx={{ mr: 1, color: localProcessingAvailable ? theme.palette.success.main : theme.palette.text.disabled }} />
+                      <Typography>本地处理</Typography>
+                      {!localProcessingAvailable && (
+                        <Typography variant="caption" sx={{ ml: 1, color: theme.palette.text.secondary }}>
+                          (即将推出)
+                        </Typography>
+                      )}
+                    </Box>
+                  }
+                />
+              </RadioGroup>
+            </FormControl>
+            
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+              {processingMode === 'cloud' 
+                ? '云服务处理: 使用专业AI云服务进行处理，速度快，质量高，无需本地GPU' 
+                : '本地处理: 使用您的计算机进行处理，保护隐私，无需联网，但需要较高配置'}
+            </Typography>
+          </Box>
 
           <Box 
             component="label"

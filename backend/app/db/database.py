@@ -1,7 +1,8 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
 from app.core.config import settings
+from app.db.base_class import Base
 
 # 异步引擎和会话
 engine = create_async_engine(
@@ -12,12 +13,10 @@ AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=F
 
 # 同步引擎和会话（用于某些同步操作）
 sync_engine = create_engine(
-    settings.SYNC_DATABASE_URL,
-    connect_args={"check_same_thread": False}
+    settings.SYNC_DATABASE_URL, connect_args={"check_same_thread": False}
 )
 SessionLocal = sessionmaker(bind=sync_engine, expire_on_commit=False)
 
-Base = declarative_base()
 
 async def get_db():
     db = AsyncSessionLocal()

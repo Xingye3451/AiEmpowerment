@@ -3,28 +3,77 @@ import {
   Container, Typography, Paper, Box, Alert, Button, Grid, 
   Drawer, List, ListItem, ListItemIcon, ListItemText, AppBar,
   Toolbar, IconButton, Avatar, Divider, useTheme, Slide, Zoom,
-  Card, CardContent, useMediaQuery, Badge
+  Card, CardContent, useMediaQuery, Badge, CssBaseline, Menu, MenuItem,
+  ListSubheader, Collapse, Tooltip
 } from '@mui/material';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-import DouyinManager from './DouyinManager';
+import ContentDistributor from './ContentDistributor';
 import AIVideoProcessor from './AIVideoProcessor';
+import TaskManager from './TaskManager';
+import SocialAccountManager from './SocialAccountManager';
+import Logo from './Logo';
 import { USER_API } from '../config/api';
-import MenuIcon from '@mui/icons-material/Menu';
-import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
-import HomeIcon from '@mui/icons-material/Home';
-import VideocamIcon from '@mui/icons-material/Videocam';
-import SmartToyIcon from '@mui/icons-material/SmartToy';
-import AccountCircleIcon from '@mui/icons-material/AccountCircle';
-import LogoutIcon from '@mui/icons-material/Logout';
-import NotificationsIcon from '@mui/icons-material/Notifications';
+import {
+  Menu as MenuIcon,
+  VideoLibrary as VideoLibraryIcon,
+  Schedule as ScheduleIcon,
+  CloudDownload as CloudDownloadIcon,
+  Assignment as AssignmentIcon,
+  Send as SendIcon,
+  Notifications as NotificationsIcon,
+  Group as GroupIcon,
+  Logout as LogoutIcon,
+  Settings as SettingsIcon,
+  Person as PersonIcon,
+  ExpandLess as ExpandLessIcon,
+  ExpandMore as ExpandMoreIcon,
+  WorkOutline as WorkOutlineIcon,
+  Storage as StorageIcon,
+  Dashboard as DashboardIcon,
+  KeyboardArrowDown as KeyboardArrowDownIcon,
+  PlaylistAddCheck as PlaylistAddCheckIcon,
+  Image as ImageIcon
+} from '@mui/icons-material';
+import ScheduledTaskManager from './ScheduledTaskManager';
+import ContentCollector from './ContentCollector';
+import NotificationCenter from './NotificationCenter';
+import NotificationsPage from './NotificationsPage';
+import UserProfileDialog from './UserProfileDialog';
+import ComfyUIIntegration from './ComfyUIIntegration';
+
+const drawerWidth = 240;
+
+// 菜单项接口
+interface MenuItem {
+  id: string;
+  text: string;
+  icon: JSX.Element;
+  category?: string;
+}
+
+// 菜单分类接口
+interface MenuCategory {
+  id: string;
+  text: string;
+  icon: JSX.Element;
+  items: MenuItem[];
+}
 
 const Dashboard: React.FC = () => {
   const [userData, setUserData] = useState<any>(null);
   const [error, setError] = useState('');
-  const [activeComponent, setActiveComponent] = useState<'douyin' | 'ai'>('douyin');
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [activeComponent, setActiveComponent] = useState('ai_video');
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({
+    business: true,
+    task: true,
+    resource: true,
+    system: true
+  });
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
@@ -37,10 +86,19 @@ const Dashboard: React.FC = () => {
         const response = await axios.get(USER_API.PROFILE, {
           headers: {
             Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
           },
-          withCredentials: true,
+          withCredentials: true
         });
-        setUserData(response.data);
+        
+        // 确保响应数据是对象
+        if (response.data && typeof response.data === 'object') {
+          setUserData(response.data);
+        } else {
+          console.error('用户资料数据格式不正确:', response.data);
+          setError('获取用户信息失败：数据格式不正确');
+        }
       } catch (error: any) {
         setError(error.response?.data?.detail || '获取用户信息失败');
         console.error('Error fetching user data:', error);
@@ -56,150 +114,224 @@ const Dashboard: React.FC = () => {
     fetchUserData();
   }, [navigate]);
 
-  const handleComponentChange = (component: 'douyin' | 'ai') => {
-    setActiveComponent(component);
+  const handleDrawerToggle = () => {
+    setMobileOpen(!mobileOpen);
+  };
+
+  const handleComponentChange = (componentId: string) => {
+    setActiveComponent(componentId);
     if (isMobile) {
-      setDrawerOpen(false);
+      setMobileOpen(false);
     }
+  };
+
+  const handleUserMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  const handleUserMenuClose = () => {
+    setAnchorEl(null);
   };
 
   const handleLogout = () => {
     localStorage.removeItem('token');
     navigate('/login');
+    handleUserMenuClose();
   };
 
-  const drawerWidth = 240;
+  const handleProfile = () => {
+    handleUserMenuClose();
+    setProfileDialogOpen(true);
+  };
+
+  const handleNavigate = (path: string, params?: any) => {
+    switch (path) {
+      case '/notifications':
+        setActiveComponent('notifications');
+        break;
+      case '/collection':
+        setActiveComponent('content_collect');
+        break;
+      case '/scheduled-tasks':
+        setActiveComponent('scheduled_tasks');
+        break;
+      default:
+        break;
+    }
+  };
+
+  const handleUserDataUpdate = (updatedUserData: any) => {
+    setUserData(updatedUserData);
+  };
+
+  const handleCategoryToggle = (categoryId: string) => {
+    setExpandedCategories({
+      ...expandedCategories,
+      [categoryId]: !expandedCategories[categoryId]
+    });
+  };
+
+  // 菜单分类
+  const menuCategories: MenuCategory[] = [
+    {
+      id: 'business',
+      text: '内容工作台',
+      icon: <WorkOutlineIcon color="primary" />,
+      items: [
+        { id: 'ai_video', text: 'AI视频处理', icon: <VideoLibraryIcon color="primary" /> },
+        { id: 'content_distribute', text: '内容分发', icon: <SendIcon color="primary" /> },
+        { id: 'content_collect', text: '内容采集', icon: <CloudDownloadIcon color="primary" /> },
+        { id: 'comfyui', text: 'ComfyUI集成', icon: <ImageIcon color="primary" /> }
+      ]
+    },
+    {
+      id: 'task',
+      text: '任务中心',
+      icon: <PlaylistAddCheckIcon color="secondary" />,
+      items: [
+        { id: 'tasks', text: '任务管理', icon: <AssignmentIcon color="secondary" /> },
+        { id: 'scheduled_tasks', text: '定时任务管理', icon: <ScheduleIcon color="secondary" /> }
+      ]
+    },
+    {
+      id: 'resource',
+      text: '资源管理',
+      icon: <StorageIcon color="success" />,
+      items: [
+        { id: 'social_accounts', text: '社交账号管理', icon: <GroupIcon color="success" /> }
+      ]
+    },
+    {
+      id: 'system',
+      text: '系统设置',
+      icon: <SettingsIcon color="info" />,
+      items: [
+        { id: 'notifications', text: '通知中心', icon: <NotificationsIcon color="info" /> }
+      ]
+    }
+  ];
+
+  // 获取所有菜单项的平面列表（用于查找当前活动项的文本）
+  const allMenuItems = menuCategories.flatMap(category => category.items);
 
   const drawer = (
-    <>
-      {isMobile && (
-        <>
-          <Box sx={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'flex-end',
-            padding: '8px'
-          }}>
-            <IconButton 
-              onClick={() => setDrawerOpen(false)}
-              sx={{
-                '&:hover': {
-                  backgroundColor: 'rgba(0, 0, 0, 0.04)',
-                },
-              }}
-            >
-              <ChevronLeftIcon />
-            </IconButton>
-          </Box>
-          <Divider />
-        </>
-      )}
-      {userData && (
-        <Box sx={{ 
-          display: 'flex', 
-          flexDirection: 'column', 
-          alignItems: 'center',
-          padding: '20px 0'
-        }}>
-          <Avatar 
-            sx={{ 
-              width: 80, 
-              height: 80, 
-              bgcolor: theme.palette.primary.main,
-              mb: 2,
-              boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1)',
-              transition: 'transform 0.3s',
-              '&:hover': {
-                transform: 'scale(1.05)',
-              }
-            }}
-          >
-            {userData.username[0].toUpperCase()}
-          </Avatar>
-          <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-            {userData.username}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            {userData.email}
-          </Typography>
-        </Box>
-      )}
+    <div>
+      <Box sx={{ display: 'flex', alignItems: 'center', p: 2 }}>
+        <Logo sx={{ width: 40, height: 40, color: 'primary.main' }} />
+        <Typography variant="h6" noWrap component="div" sx={{ ml: 1, color: 'primary.main', fontWeight: 'bold' }}>
+          AI赋能中心
+        </Typography>
+      </Box>
       <Divider />
-      <List component="nav" sx={{ pt: 2 }}>
-        <ListItem 
-          button 
-          selected={activeComponent === 'douyin'}
-          onClick={() => handleComponentChange('douyin')}
-          sx={{
-            borderRadius: '0 20px 20px 0',
-            mr: 2,
-            mb: 1,
-            '&.Mui-selected': {
-              backgroundColor: theme.palette.primary.light,
-              color: theme.palette.primary.contrastText,
-              '& .MuiListItemIcon-root': {
-                color: theme.palette.primary.contrastText,
-              },
-            },
-          }}
-        >
-          <ListItemIcon>
-            <VideocamIcon />
-          </ListItemIcon>
-          <ListItemText primary="抖音管理" />
-        </ListItem>
-        <ListItem 
-          button 
-          selected={activeComponent === 'ai'}
-          onClick={() => handleComponentChange('ai')}
-          sx={{
-            borderRadius: '0 20px 20px 0',
-            mr: 2,
-            mb: 1,
-            '&.Mui-selected': {
-              backgroundColor: theme.palette.primary.light,
-              color: theme.palette.primary.contrastText,
-              '& .MuiListItemIcon-root': {
-                color: theme.palette.primary.contrastText,
-              },
-            },
-          }}
-        >
-          <ListItemIcon>
-            <SmartToyIcon />
-          </ListItemIcon>
-          <ListItemText primary="AI视频处理" />
-        </ListItem>
-        <Divider sx={{ my: 2 }} />
-        <ListItem 
-          button 
-          onClick={handleLogout}
-          sx={{
-            borderRadius: '0 20px 20px 0',
-            mr: 2,
-            color: theme.palette.error.main,
-            '& .MuiListItemIcon-root': {
-              color: theme.palette.error.main,
-            },
-          }}
-        >
-          <ListItemIcon>
-            <LogoutIcon />
-          </ListItemIcon>
-          <ListItemText primary="退出登录" />
-        </ListItem>
-      </List>
-    </>
+      
+      {menuCategories.map((category) => (
+        <React.Fragment key={category.id}>
+          <List
+            subheader={
+              <ListItem 
+                button 
+                onClick={() => handleCategoryToggle(category.id)}
+                sx={{ 
+                  bgcolor: 'rgba(0, 0, 0, 0.03)',
+                  '&:hover': { bgcolor: 'rgba(0, 0, 0, 0.06)' }
+                }}
+              >
+                <ListItemIcon>{category.icon}</ListItemIcon>
+                <ListItemText 
+                  primary={category.text} 
+                  primaryTypographyProps={{ 
+                    fontWeight: 'medium',
+                    variant: 'subtitle1'
+                  }}
+                />
+                {expandedCategories[category.id] ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+              </ListItem>
+            }
+          >
+            <Collapse in={expandedCategories[category.id]} timeout="auto" unmountOnExit>
+              {category.items.map((item) => (
+                <ListItem
+                  button
+                  key={item.id}
+                  selected={activeComponent === item.id}
+                  onClick={() => handleComponentChange(item.id)}
+                  sx={{ 
+                    pl: 4,
+                    '&.Mui-selected': {
+                      bgcolor: 'rgba(0, 0, 0, 0.08)',
+                      '&:hover': {
+                        bgcolor: 'rgba(0, 0, 0, 0.12)'
+                      }
+                    }
+                  }}
+                >
+                  <ListItemIcon>{item.icon}</ListItemIcon>
+                  <ListItemText primary={item.text} />
+                </ListItem>
+              ))}
+            </Collapse>
+          </List>
+          <Divider />
+        </React.Fragment>
+      ))}
+    </div>
   );
 
+  const renderComponent = () => {
+    switch (activeComponent) {
+      case 'ai_video':
+        return <AIVideoProcessor />;
+      case 'tasks':
+        return <TaskManager />;
+      case 'content_distribute':
+        return <ContentDistributor />;
+      case 'social_accounts':
+        return <SocialAccountManager />;
+      case 'scheduled_tasks':
+        return <ScheduledTaskManager />;
+      case 'content_collect':
+        return <ContentCollector />;
+      case 'notifications':
+        return <NotificationsPage onNavigate={handleNavigate} />;
+      case 'comfyui':
+        return <ComfyUIIntegration />;
+      default:
+        return <AIVideoProcessor />;
+    }
+  };
+
+  const fetchUserProfile = async () => {
+    try {
+      setLoading(true);
+      const response = await axios.get(USER_API.PROFILE, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
+        },
+      });
+      
+      // 确保响应数据是对象
+      if (response.data && typeof response.data === 'object') {
+        setUserData(response.data);
+      } else {
+        console.error('用户资料数据格式不正确:', response.data);
+        setError('获取用户资料失败：数据格式不正确');
+      }
+    } catch (error) {
+      console.error('获取用户资料失败:', error);
+      setError('获取用户资料失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-      <AppBar 
-        position="fixed" 
-        sx={{ 
-          zIndex: theme.zIndex.drawer + 1,
-          background: 'linear-gradient(45deg, #3f51b5 30%, #757de8 90%)',
-          boxShadow: '0 3px 5px 2px rgba(63, 81, 181, .3)',
+    <Box sx={{ display: 'flex' }}>
+      <CssBaseline />
+      <AppBar
+        position="fixed"
+        sx={{
+          width: { sm: `calc(100% - ${drawerWidth}px)` },
+          ml: { sm: `${drawerWidth}px` },
         }}
       >
         <Toolbar>
@@ -207,127 +339,152 @@ const Dashboard: React.FC = () => {
             color="inherit"
             aria-label="open drawer"
             edge="start"
-            onClick={() => setDrawerOpen(!drawerOpen)}
-            sx={{ 
-              mr: 2,
-              display: { sm: 'none' }
-            }}
+            onClick={handleDrawerToggle}
+            sx={{ mr: 2, display: { sm: 'none' } }}
           >
             <MenuIcon />
           </IconButton>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1, fontWeight: 'bold' }}>
-            AI赋能平台
+          <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
+            {allMenuItems.find(item => item.id === activeComponent)?.text || 'AI赋能中心'}
           </Typography>
-          <IconButton color="inherit">
-            <Badge badgeContent={4} color="error">
-              <NotificationsIcon />
-            </Badge>
-          </IconButton>
-          {!isMobile && userData && (
-            <Box sx={{ display: 'flex', alignItems: 'center', ml: 2 }}>
-              <Avatar sx={{ bgcolor: theme.palette.secondary.main, mr: 1 }}>
-                {userData.username[0].toUpperCase()}
-              </Avatar>
-              <Typography variant="subtitle1">{userData.username}</Typography>
-            </Box>
-          )}
+          
+          {/* 通知中心 */}
+          <NotificationCenter onNavigate={handleNavigate} />
+          
+          {/* 用户头像和菜单 */}
+          <Box sx={{ display: 'flex', alignItems: 'center', ml: 2 }}>
+            <Tooltip title="账户设置">
+              <Button
+                onClick={handleUserMenuOpen}
+                color="inherit"
+                endIcon={<KeyboardArrowDownIcon />}
+                sx={{ 
+                  textTransform: 'none',
+                  display: 'flex',
+                  alignItems: 'center'
+                }}
+              >
+                <Avatar 
+                  sx={{ 
+                    width: 32, 
+                    height: 32,
+                    mr: 1,
+                    bgcolor: 'primary.dark'
+                  }}
+                >
+                  {userData?.username?.charAt(0)?.toUpperCase() || 'U'}
+                </Avatar>
+                {userData?.username || '用户'}
+              </Button>
+            </Tooltip>
+            <Menu
+              id="menu-appbar"
+              anchorEl={anchorEl}
+              anchorOrigin={{
+                vertical: 'bottom',
+                horizontal: 'right',
+              }}
+              keepMounted
+              transformOrigin={{
+                vertical: 'top',
+                horizontal: 'right',
+              }}
+              open={Boolean(anchorEl)}
+              onClose={handleUserMenuClose}
+              PaperProps={{
+                elevation: 3,
+                sx: { 
+                  minWidth: 180,
+                  mt: 1
+                }
+              }}
+            >
+              <MenuItem onClick={handleProfile} sx={{ py: 1.5 }}>
+                <ListItemIcon>
+                  <PersonIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText primary="个人资料" />
+              </MenuItem>
+              <MenuItem onClick={handleComponentChange.bind(null, 'notifications')} sx={{ py: 1.5 }}>
+                <ListItemIcon>
+                  <NotificationsIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText primary="通知中心" />
+              </MenuItem>
+              <Divider />
+              <MenuItem onClick={handleLogout} sx={{ py: 1.5 }}>
+                <ListItemIcon>
+                  <LogoutIcon fontSize="small" color="error" />
+                </ListItemIcon>
+                <ListItemText primary="退出登录" sx={{ color: 'error.main' }} />
+              </MenuItem>
+            </Menu>
+          </Box>
         </Toolbar>
       </AppBar>
-
-      <Drawer
-        variant={isMobile ? "temporary" : "permanent"}
-        open={isMobile ? drawerOpen : true}
-        onClose={() => setDrawerOpen(false)}
-        ModalProps={{
-          keepMounted: true,
-        }}
-        sx={{
-          display: { xs: 'block' },
-          '& .MuiDrawer-paper': {
-            boxSizing: 'border-box',
-            width: drawerWidth,
-            backgroundImage: 'linear-gradient(to bottom, #f5f5f5, #ffffff)',
-            ...(isMobile ? {
-              height: '100%',
-            } : {
-              position: 'relative',
-              marginTop: '64px',
-              height: 'calc(100% - 64px)',
-            }),
-          },
-        }}
+      <Box
+        component="nav"
+        sx={{ width: { sm: drawerWidth }, flexShrink: { sm: 0 } }}
       >
-        {isMobile && <Toolbar />}
-        {drawer}
-      </Drawer>
-
+        <Drawer
+          variant="temporary"
+          open={mobileOpen}
+          onClose={handleDrawerToggle}
+          ModalProps={{
+            keepMounted: true, // Better open performance on mobile.
+          }}
+          sx={{
+            display: { xs: 'block', sm: 'none' },
+            '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
+          }}
+        >
+          {drawer}
+        </Drawer>
+        <Drawer
+          variant="permanent"
+          sx={{
+            display: { xs: 'none', sm: 'block' },
+            '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
+          }}
+          open
+        >
+          {drawer}
+        </Drawer>
+      </Box>
       <Box
         component="main"
         sx={{
           flexGrow: 1,
           p: 3,
-          backgroundColor: theme.palette.background.default,
           width: { sm: `calc(100% - ${drawerWidth}px)` },
-          ml: { sm: `${drawerWidth}px` },
+          minHeight: '100vh'
         }}
       >
         <Toolbar />
-        
-        {error && (
-          <Zoom in={!!error}>
-            <Alert 
-              severity="error" 
-              sx={{ 
-                mb: 2,
-                boxShadow: '0 2px 10px rgba(244, 67, 54, 0.2)',
-                borderRadius: 2
-              }}
-            >
+        <Container maxWidth="xl">
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }}>
               {error}
             </Alert>
-          </Zoom>
-        )}
-
-        <Slide direction="down" in={!loading} mountOnEnter unmountOnExit>
-          <Box sx={{ mt: 2 }}>
-            <Card 
-              elevation={3} 
-              sx={{ 
-                mb: 4,
-                borderRadius: 3,
-                background: 'linear-gradient(45deg, #e8eaf6 30%, #ffffff 90%)'
-              }}
-            >
-              <CardContent>
-                <Typography 
-                  component="h1" 
-                  variant="h4" 
-                  gutterBottom 
-                  sx={{ 
-                    fontWeight: 'bold',
-                    color: theme.palette.primary.main 
-                  }}
-                >
-                  {activeComponent === 'douyin' ? '抖音管理中心' : 'AI视频处理中心'}
-                </Typography>
-                <Typography variant="body1" color="text.secondary" paragraph>
-                  {activeComponent === 'douyin' 
-                    ? '在这里管理您的抖音账号、视频和发布计划。' 
-                    : '使用人工智能技术处理和优化您的视频内容。'}
-                </Typography>
-              </CardContent>
-            </Card>
-
-            <Box sx={{ mt: 4 }}>
-              {activeComponent === 'douyin' ? (
-                <DouyinManager />
-              ) : (
-                <AIVideoProcessor />
-              )}
+          )}
+          
+          {loading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '70vh' }}>
+              <Typography>加载中...</Typography>
             </Box>
-          </Box>
-        </Slide>
+          ) : (
+            renderComponent()
+          )}
+        </Container>
       </Box>
+
+      {/* 用户资料对话框 */}
+      <UserProfileDialog
+        open={profileDialogOpen}
+        onClose={() => setProfileDialogOpen(false)}
+        userData={userData}
+        onUserDataUpdate={handleUserDataUpdate}
+      />
     </Box>
   );
 };

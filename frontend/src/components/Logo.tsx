@@ -1,5 +1,5 @@
 import React from 'react';
-import { SvgIcon, SvgIconProps } from '@mui/material';
+import { SvgIcon, SvgIconProps, useTheme } from '@mui/material';
 
 // 导出favicon SVG路径数据
 export const LogoIconPaths = {
@@ -10,6 +10,8 @@ export const LogoIconPaths = {
 
 // Favicon版本的Logo
 export const FaviconLogo = () => {
+  const theme = useTheme();
+  
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -19,8 +21,8 @@ export const FaviconLogo = () => {
     >
       <defs>
         <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="30%" stopColor="#2196F3" />
-          <stop offset="90%" stopColor="#21CBF3" />
+          <stop offset="30%" stopColor={theme.palette.primary.main} />
+          <stop offset="90%" stopColor={theme.palette.secondary.main} />
         </linearGradient>
       </defs>
       <path d={LogoIconPaths.circle} fill="url(#gradient)" opacity="0.2" />
@@ -35,6 +37,9 @@ export const FaviconLogo = () => {
 
 // 主Logo组件
 const Logo = (props: SvgIconProps) => {
+  const theme = useTheme();
+  const uniqueId = `logoGradient-${Math.random().toString(36).substr(2, 9)}`;
+  
   return (
     <SvgIcon
       {...props}
@@ -46,27 +51,27 @@ const Logo = (props: SvgIconProps) => {
       }}
     >
       <defs>
-        <linearGradient id="logoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="30%" stopColor="#2196F3" />
-          <stop offset="90%" stopColor="#21CBF3" />
+        <linearGradient id={uniqueId} x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="30%" stopColor={theme.palette.primary.main} />
+          <stop offset="90%" stopColor={theme.palette.secondary.main} />
         </linearGradient>
       </defs>
       <path
         d={LogoIconPaths.circle}
-        fill="url(#logoGradient)"
+        fill={`url(#${uniqueId})`}
         opacity="0.2"
       />
       <path
         d={LogoIconPaths.aiText}
-        fill="url(#logoGradient)"
+        fill={`url(#${uniqueId})`}
       />
       <path
         d={LogoIconPaths.border}
-        fill="url(#logoGradient)"
+        fill={`url(#${uniqueId})`}
       />
-      <circle cx="12" cy="12" r="1" fill="url(#logoGradient)" />
-      <circle cx="8" cy="12" r="1" fill="url(#logoGradient)" />
-      <circle cx="16" cy="12" r="1" fill="url(#logoGradient)" />
+      <circle cx="12" cy="12" r="1" fill={`url(#${uniqueId})`} />
+      <circle cx="8" cy="12" r="1" fill={`url(#${uniqueId})`} />
+      <circle cx="16" cy="12" r="1" fill={`url(#${uniqueId})`} />
     </SvgIcon>
   );
 };

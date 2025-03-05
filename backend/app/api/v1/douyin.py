@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Response
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict
 import json
 import os
 from datetime import datetime
@@ -666,6 +666,7 @@ async def batch_process_videos(
     generate_subtitles: bool = Form(False),
     video_areas: List[str] = Form(None),  # 现在是可选的
     auto_detect_subtitles: bool = Form(False),  # 新增自动检测选项
+    processing_mode: str = Form("cloud"),  # 新增处理模式参数，默认为云服务处理
     current_user: User = Depends(get_current_user),
 ):
     try:
@@ -703,12 +704,18 @@ async def batch_process_videos(
                     "remove_subtitles": remove_subtitles,
                     "generate_subtitles": generate_subtitles,
                     "selected_area": selected_area,
-                    "auto_detect_subtitles": auto_detect_subtitles,  # 添加自动检测选项
-                    "user_id": current_user.id,
+                    "auto_detect": auto_detect_subtitles,
+                    "processing_mode": processing_mode,  # 添加处理模式到任务数据中
                 },
+                status=TaskStatus.PENDING,
+                progress=0,
+                result={},
+                user_id=current_user.id,
             )
 
-            await task_queue.add_task(task)
+            # 保存任务到数据库
+            task_queue.add_task(task)
+
             processed_videos.append(
                 {
                     "task_id": task_id,
@@ -717,14 +724,10 @@ async def batch_process_videos(
                 }
             )
 
-        return {
-            "success": True,
-            "message": f"{len(videos)} videos queued for processing",
-            "tasks": processed_videos,
-        }
-
+        return {"success": True, "tasks": processed_videos}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"批量处理视频失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"批量处理视频失败: {str(e)}")
 
 
 @router.get("/process-status/{task_id}")
@@ -736,3 +739,100 @@ async def get_process_status(
         raise HTTPException(status_code=404, detail="Task not found")
 
     return {"status": task.status, "progress": task.progress, "result": task.result}
+
+
+@router.get("/processed-video/{task_id}")
+async def get_processed_video(
+    task_id: str, current_user: User = Depends(get_current_user)
+):
+    """获取处理后的视频文件，用于下载"""
+    task = task_queue.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    if task.status != TaskStatus.COMPLETED:
+        raise HTTPException(status_code=400, detail="任务尚未完成")
+
+    if not task.result or "processed_path" not in task.result:
+        raise HTTPException(status_code=404, detail="处理结果不存在")
+
+    processed_path = task.result["processed_path"]
+    if not os.path.exists(processed_path):
+        raise HTTPException(status_code=404, detail="视频文件不存在")
+
+    filename = os.path.basename(processed_path)
+
+    return FileResponse(
+        path=processed_path,
+        filename=filename,
+        media_type="video/mp4",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@router.get("/processed-video-thumbnail/{task_id}")
+async def get_processed_video_thumbnail(
+    task_id: str, current_user: User = Depends(get_current_user)
+):
+    """获取处理后视频的缩略图"""
+    task = task_queue.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    if task.status != TaskStatus.COMPLETED:
+        raise HTTPException(status_code=400, detail="任务尚未完成")
+
+    if not task.result or "processed_path" not in task.result:
+        raise HTTPException(status_code=404, detail="处理结果不存在")
+
+    processed_path = task.result["processed_path"]
+    if not os.path.exists(processed_path):
+        raise HTTPException(status_code=404, detail="视频文件不存在")
+
+    # 生成缩略图文件名
+    thumbnail_filename = (
+        f"thumbnail_{os.path.basename(processed_path).replace('.mp4', '.jpg')}"
+    )
+    thumbnail_path = os.path.join(PREVIEW_DIR, thumbnail_filename)
+
+    # 如果缩略图不存在，则生成
+    if not os.path.exists(thumbnail_path):
+        try:
+            # 使用ffmpeg生成缩略图
+            cmd = [
+                "ffmpeg",
+                "-i",
+                processed_path,
+                "-ss",
+                "00:00:01",  # 从视频的第1秒截取
+                "-vframes",
+                "1",
+                "-vf",
+                "scale=320:-1",  # 缩放到宽度320，高度按比例
+                thumbnail_path,
+            ]
+            subprocess.run(cmd, check=True)
+        except Exception as e:
+            logger.error(f"生成缩略图失败: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"生成缩略图失败: {str(e)}")
+
+    # 设置响应头
+    headers = {
+        "Cache-Control": "public, max-age=3600",
+        "Content-Disposition": f'inline; filename="{thumbnail_filename}"',
+        "Content-Type": "image/jpeg",
+    }
+
+    # 返回缩略图
+    return FileResponse(path=thumbnail_path, media_type="image/jpeg", headers=headers)
+
+
+@router.get("/check-local-processing", response_model=Dict[str, bool])
+async def check_local_processing(current_user: User = Depends(get_current_user)):
+    """
+    检查本地处理是否可用
+
+    目前本地处理功能尚未实现，所以始终返回False
+    """
+    # TODO: 实现检查本地GPU和依赖是否可用的逻辑
+    return {"available": False}

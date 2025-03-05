@@ -1,12 +1,12 @@
 # Web Framework
-fastapi>=0.68.0
-uvicorn[standard]>=0.15.0
-python-multipart
+fastapi>=0.68.1
+uvicorn>=0.15.0
+python-multipart>=0.0.5
 
 # Database
 sqlalchemy>=1.4.23
 aiosqlite>=0.17.0
-greenlet>=2.0.0  # 支持 SQLAlchemy 异步操作
+greenlet>=2.0.0
 
 # Security
 python-jose[cryptography]>=3.3.0
@@ -14,23 +14,37 @@ passlib[bcrypt]>=1.7.4
 
 # Utils
 pydantic>=1.8.0
-pydantic-settings>=2.0.0  # Pydantic v2 中 BaseSettings 的新位置
-email-validator>=2.0.0  # Added for Pydantic email validation
+pydantic-settings>=2.0.0
+email-validator>=2.0.0
 python-dotenv>=0.19.0
 pyyaml>=5.4.1
+requests>=2.26.0
 
 # Video Processing
 ffmpeg-python>=0.2.0
-numpy>=1.21.0
-opencv-python>=4.5.0
+numpy>=1.26.0
+opencv-python>=4.8.0
 moviepy>=1.0.3
 
 # HTTP Client
-aiohttp>=3.8.0
+aiohttp>=3.8.1
 aiofiles>=0.8.0
 
 # AI Services
-torch>=1.9.0
-torchaudio>=0.9.0
+torch>=2.1.0
+torchaudio>=2.1.0
+torchvision>=0.16.0
 transformers>=4.11.0
-librosa>=0.8.0
+
+# 语音处理相关依赖暂时注释掉，等待解决兼容性问题
+# 如果需要语音克隆功能，请参考 backend/app/core/ai_services.py 中的安装指南
+# resemblyzer>=0.1.0
+# face-alignment>=1.3.5
+# montreal-forced-aligner>=2.0.0
+
+# OCR相关依赖暂时注释掉，等待解决兼容性问题
+# 如果需要OCR功能，请参考 backend/app/core/ai_services.py 中的安装指南
+# paddleocr>=2.7.0
+
+# 中文处理
+pypinyin>=0.44.0

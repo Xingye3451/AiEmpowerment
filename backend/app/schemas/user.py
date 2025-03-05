@@ -20,7 +20,7 @@ class UserUpdate(BaseModel):
 
 
 class User(UserBase):
-    id: int
+    id: str
     is_active: bool
     role: str
     last_login: Optional[datetime] = None

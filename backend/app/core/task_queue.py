@@ -11,6 +11,7 @@ from app.core.config import settings
 import os
 import subprocess
 import shutil
+from app.core.ai_services import VideoProcessor
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -90,20 +91,28 @@ class TaskQueue:
     def update_task_status(
         self,
         task_id: str,
-        status: str,
+        status: str = None,
         progress: int = None,
         result: dict = None,
         error: str = None,
+        **kwargs,
     ):
         if task_id in self.tasks:
             task = self.tasks[task_id]
-            task.status = status
+            if status is not None:
+                task.status = status
             if progress is not None:
                 task.progress = progress
             if result is not None:
                 task.result = result
             if error is not None:
                 task.error = error
+
+            # 处理其他属性
+            for key, value in kwargs.items():
+                if hasattr(task, key):
+                    setattr(task, key, value)
+
             task.updated_at = datetime.now()
 
     async def cleanup_old_tasks(self):
@@ -313,6 +322,7 @@ class TaskQueue:
         try:
             self.update_task_status(task.task_id, TaskStatus.RUNNING, 10)
 
+            # 获取任务参数
             original_path = task.data["original_path"]
             processed_path = task.data["processed_path"]
             text = task.data["text"]
@@ -321,108 +331,67 @@ class TaskQueue:
             selected_area = task.data.get("selected_area")
             auto_detect_subtitles = task.data.get("auto_detect_subtitles", False)
 
-            current_video_path = original_path
-            progress = 10
+            # 创建视频处理器实例
+            processor = VideoProcessor()
 
-            # 1. 如果需要，使用AI模型去除字幕并修复背景
-            if remove_subtitles:
-                no_subtitle_path = (
-                    f"{os.path.splitext(original_path)[0]}_no_subtitle.mp4"
-                )
-                try:
-                    from app.core.ai_services import RunwayMLService
+            # 定义进度回调函数
+            def progress_callback(progress: float):
+                self.update_task_status(task.task_id, TaskStatus.RUNNING, int(progress))
 
-                    runway_service = RunwayMLService()
-                    await runway_service.inpaint_video(
-                        input_path=current_video_path,
-                        output_path=no_subtitle_path,
-                        mask_type="text",  # 指定要移除文字
-                        restoration_quality="high",
-                        selected_area=selected_area,
-                        auto_detect=auto_detect_subtitles,  # 添加自动检测选项
-                    )
-                    current_video_path = no_subtitle_path
-                    progress = 40
-                    self.update_task_status(task.task_id, TaskStatus.RUNNING, progress)
-                except Exception as e:
-                    raise Exception(f"AI移除字幕失败: {str(e)}")
+            # 处理选项
+            options = {
+                "output_path": processed_path,
+                "remove_subtitles": remove_subtitles,
+                "generate_subtitles": generate_subtitles,
+                "selected_area": selected_area,
+                "auto_detect_subtitles": auto_detect_subtitles,
+                "language": "chinese",  # 默认使用中文
+            }
 
-            # 2. 使用MockingBird或YourTTS进行声音克隆
-            try:
-                from app.core.ai_services import VoiceCloningService
-
-                voice_service = VoiceCloningService()
-                # 提取原始音频中的声音特征
-                voice_features = await voice_service.extract_voice_features(
-                    original_path
-                )
-                # 使用提取的声音特征生成新的语音
-                new_audio_path = f"{os.path.splitext(original_path)[0]}_new_audio.wav"
-                await voice_service.generate_speech(
-                    text=text, voice_features=voice_features, output_path=new_audio_path
-                )
-                progress = 70
-                self.update_task_status(task.task_id, TaskStatus.RUNNING, progress)
-            except Exception as e:
-                raise Exception(f"AI语音克隆失败: {str(e)}")
-
-            # 3. 使用Wav2Lip或SadTalker进行唇形同步
-            try:
-                from app.core.ai_services import LipSyncService
-
-                lip_sync_service = LipSyncService()
-                temp_output_path = f"{os.path.splitext(processed_path)[0]}_temp.mp4"
-                await lip_sync_service.sync_video_with_audio(
-                    video_path=current_video_path,
-                    audio_path=new_audio_path,
-                    output_path=temp_output_path,
-                    sync_quality="high",
-                )
-                current_video_path = temp_output_path
-                progress = 90
-                self.update_task_status(task.task_id, TaskStatus.RUNNING, progress)
-            except Exception as e:
-                raise Exception(f"AI口型同步失败: {str(e)}")
-
-            # 4. 如果需要，生成新的字幕
-            if generate_subtitles:
-                try:
-                    from app.core.ai_services import SubtitleService
-
-                    subtitle_service = SubtitleService()
-                    await subtitle_service.generate_subtitles(
-                        video_path=current_video_path,
-                        text=text,
-                        output_path=processed_path,
-                    )
-                except Exception as e:
-                    raise Exception(f"生成字幕失败: {str(e)}")
-            else:
-                # 如果不需要生成字幕，直接将当前处理的视频移动到最终位置
-                shutil.move(current_video_path, processed_path)
-
-            # 5. 清理临时文件
-            temp_files = [
-                f"{os.path.splitext(original_path)[0]}_no_subtitle.mp4",
-                f"{os.path.splitext(original_path)[0]}_new_audio.wav",
-                f"{os.path.splitext(processed_path)[0]}_temp.mp4",
-            ]
-            for temp_file in temp_files:
-                if os.path.exists(temp_file):
-                    os.remove(temp_file)
-
-            self.update_task_status(
-                task.task_id,
-                TaskStatus.COMPLETED,
-                100,
-                result={
-                    "processed_path": processed_path,
-                    "removed_subtitles": remove_subtitles,
-                    "generated_subtitles": generate_subtitles,
-                    "selected_area": selected_area,
-                },
+            # 执行视频处理
+            success = await processor.process_video(
+                original_path, text, options, progress_callback
             )
+
+            if success:
+                # 生成视频URL和缩略图URL
+                video_filename = os.path.basename(processed_path)
+                video_url = f"/api/v1/douyin/processed-video/{task.task_id}"
+                thumbnail_url = (
+                    f"/api/v1/douyin/processed-video-thumbnail/{task.task_id}"
+                )
+
+                self.update_task_status(
+                    task.task_id,
+                    TaskStatus.COMPLETED,
+                    100,
+                    result={
+                        "processed_path": processed_path,
+                        "removed_subtitles": remove_subtitles,
+                        "generated_subtitles": generate_subtitles,
+                        "selected_area": selected_area,
+                        "video_url": video_url,
+                        "thumbnail_url": thumbnail_url,
+                        "filename": video_filename,
+                    },
+                )
+            else:
+                raise Exception("视频处理失败")
 
         except Exception as e:
             logger.error(f"处理视频失败: {str(e)}")
             self.update_task_status(task.task_id, TaskStatus.FAILED, 100, error=str(e))
+
+        finally:
+            # 清理临时文件
+            try:
+                temp_files = [
+                    f"{os.path.splitext(original_path)[0]}_no_subtitle.mp4",
+                    f"{os.path.splitext(original_path)[0]}_new_audio.wav",
+                    f"{os.path.splitext(processed_path)[0]}_temp.mp4",
+                ]
+                for temp_file in temp_files:
+                    if os.path.exists(temp_file):
+                        os.remove(temp_file)
+            except Exception as e:
+                logger.error(f"清理临时文件失败: {str(e)}")

@@ -21,6 +21,27 @@ import {
   Tab,
   useTheme,
   alpha,
+  Grid,
+  Drawer,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
+  AppBar,
+  Toolbar,
+  IconButton,
+  Avatar,
+  Divider,
+  useMediaQuery,
+  Badge,
+  CssBaseline,
+  Menu,
+  MenuItem,
+  ListSubheader,
+  Collapse,
+  Tooltip,
+  Switch,
+  FormControlLabel,
 } from '@mui/material';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
@@ -31,7 +52,7 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import Logo from './Logo';
 
 interface User {
-  id: number;
+  id: string;
   username: string;
   email: string;
   is_active: boolean;
@@ -118,15 +139,24 @@ const AdminDashboard = () => {
         email: userFormData.email,
       };
 
-      await axios.put(
+      const response = await axios.put(
         ADMIN_API.UPDATE_USER(selectedUser.id),
         updateData
       );
+      
+      // 更新本地用户列表，避免重新获取
+      const updatedUser = response.data;
+      setUsers(users.map(user => 
+        user.id === selectedUser.id ? updatedUser : user
+      ));
+      
       setSuccess('用户信息更新成功');
       setEditDialog(false);
       setSelectedUser(null);
       setUserFormData({ username: '', email: '', password: '' });
-      fetchUsers();
+      
+      // 确保获取最新数据
+      await fetchUsers();
     } catch (error: any) {
       setError(error.response?.data?.detail || '更新用户信息失败');
     }
@@ -204,6 +234,133 @@ const AdminDashboard = () => {
     } catch (error: any) {
       setError(error.response?.data?.detail || '修改密码失败');
     }
+  };
+
+  // 系统设置组件
+  const SystemSettings = () => {
+    const [settings, setSettings] = useState<any>({
+      uploadDir: '',
+      maxUploadSize: 0,
+      databaseUrl: '',
+      comfyuiUrl: '',
+      // 其他设置...
+    });
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [success, setSuccess] = useState('');
+
+    useEffect(() => {
+      // 获取系统设置
+      fetchSettings();
+    }, []);
+
+    const fetchSettings = async () => {
+      try {
+        setLoading(true);
+        const response = await axios.get('/api/admin/settings');
+        setSettings(response.data);
+      } catch (error) {
+        console.error('获取系统设置失败:', error);
+        setError('获取系统设置失败');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const { name, value } = e.target;
+      setSettings({
+        ...settings,
+        [name]: value
+      });
+    };
+
+    const handleSave = async () => {
+      try {
+        setLoading(true);
+        setError('');
+        setSuccess('');
+        
+        await axios.post('/api/admin/settings', settings);
+        setSuccess('设置保存成功');
+      } catch (error) {
+        console.error('保存设置失败:', error);
+        setError('保存设置失败');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    return (
+      <Paper elevation={3} sx={{ p: 3 }}>
+        <Typography variant="h6" gutterBottom>
+          系统设置
+        </Typography>
+        <Divider sx={{ mb: 3 }} />
+        
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
+        
+        <Grid container spacing={3}>
+          <Grid item xs={12} md={6}>
+            <TextField
+              fullWidth
+              label="上传目录"
+              name="uploadDir"
+              value={settings.uploadDir}
+              onChange={handleChange}
+              margin="normal"
+              helperText="文件上传的存储目录"
+            />
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <TextField
+              fullWidth
+              label="最大上传大小 (MB)"
+              name="maxUploadSize"
+              type="number"
+              value={settings.maxUploadSize}
+              onChange={handleChange}
+              margin="normal"
+              helperText="允许上传的最大文件大小 (MB)"
+            />
+          </Grid>
+          <Grid item xs={12}>
+            <TextField
+              fullWidth
+              label="数据库URL"
+              name="databaseUrl"
+              value={settings.databaseUrl}
+              onChange={handleChange}
+              margin="normal"
+              helperText="数据库连接URL"
+            />
+          </Grid>
+          <Grid item xs={12}>
+            <TextField
+              fullWidth
+              label="ComfyUI URL"
+              name="comfyuiUrl"
+              value={settings.comfyuiUrl}
+              onChange={handleChange}
+              margin="normal"
+              helperText="ComfyUI服务的URL，例如: http://127.0.0.1:8188"
+            />
+          </Grid>
+          {/* 其他设置字段 */}
+        </Grid>
+        
+        <Box sx={{ mt: 3, display: 'flex', justifyContent: 'flex-end' }}>
+          <Button 
+            variant="contained" 
+            onClick={handleSave}
+            disabled={loading}
+          >
+            保存设置
+          </Button>
+        </Box>
+      </Paper>
+    );
   };
 
   return (
@@ -421,7 +578,6 @@ const AdminDashboard = () => {
                     <Table>
                       <TableHead>
                         <TableRow sx={{ backgroundColor: alpha('#3498db', 0.05) }}>
-                          <TableCell sx={{ fontWeight: 700, color: 'text.primary' }}>ID</TableCell>
                           <TableCell sx={{ fontWeight: 700, color: 'text.primary' }}>用户名</TableCell>
                           <TableCell sx={{ fontWeight: 700, color: 'text.primary' }}>邮箱</TableCell>
                           <TableCell sx={{ fontWeight: 700, color: 'text.primary' }}>角色</TableCell>
@@ -444,7 +600,6 @@ const AdminDashboard = () => {
                               }
                             }}
                           >
-                            <TableCell>{user.id}</TableCell>
                             <TableCell sx={{ fontWeight: 500 }}>{user.username}</TableCell>
                             <TableCell>{user.email}</TableCell>
                             <TableCell>
