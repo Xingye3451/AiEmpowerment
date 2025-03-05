@@ -7,6 +7,9 @@ python-multipart>=0.0.5
 sqlalchemy>=1.4.23
 aiosqlite>=0.17.0
 greenlet>=2.0.0
+# MySQL支持
+aiomysql>=0.1.1
+pymysql>=1.0.2
 
 # Security
 python-jose[cryptography]>=3.3.0
@@ -29,6 +32,12 @@ moviepy>=1.0.3
 # HTTP Client
 aiohttp>=3.8.1
 aiofiles>=0.8.0
+httpx>=0.24.0
+
+# Web Scraping & Crawling
+beautifulsoup4>=4.9.3
+soupsieve>=2.0.1
+lxml>=4.6.3
 
 # AI Services
 torch>=2.1.0

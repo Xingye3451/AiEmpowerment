@@ -23,9 +23,16 @@ from app.models.social_account import (
 
 async def init_db():
     """初始化数据库表"""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        print("Database tables created successfully.")
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            print("Database tables created successfully.")
+    except Exception as e:
+        print(f"数据库初始化失败: {e}")
+        import traceback
+
+        traceback.print_exc()
+        raise
 
 
 async def create_admin():
@@ -78,11 +85,18 @@ async def init_social_account_tables():
 
 async def init_all():
     """执行所有初始化步骤"""
+    # 1. 确保数据库文件存在
     ensure_db_exists()
+
+    # 2. 初始化数据库表结构
     await init_db()
+
+    # 3. 创建管理员账号
     await create_admin()
-    # 确保社交账号表已创建
+
+    # 4. 初始化社交账号相关表
     await init_social_account_tables()
+
     print("Database initialization completed.")
 
 

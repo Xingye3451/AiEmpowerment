@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import os
 from functools import lru_cache
 import yaml
@@ -23,8 +23,21 @@ class Settings(BaseSettings):
     ADMIN_TOKEN_EXPIRE_MINUTES: int = 60  # 管理员token默认有效期1小时
 
     # 数据库配置
+    DB_TYPE: str = "sqlite"  # 默认使用SQLite
+
+    # SQLite配置
     DB_FILE: str = "app.db"
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./app.db")
+
+    # MySQL配置
+    MYSQL_HOST: str = "localhost"
+    MYSQL_PORT: int = 3306
+    MYSQL_USER: str = "root"
+    MYSQL_PASSWORD: str = "password"
+    MYSQL_DB: str = "aiempowerment"
+    MYSQL_CHARSET: str = "utf8mb4"
+
+    # 数据库URL（会根据DB_TYPE自动生成）
+    DATABASE_URL: str = ""
     SYNC_DATABASE_URL: str = ""
 
     # 文件上传配置
@@ -93,7 +106,28 @@ class Settings(BaseSettings):
                         )
 
                     if config.get("database"):
-                        self.DB_FILE = config["database"].get("file", self.DB_FILE)
+                        # 数据库类型
+                        self.DB_TYPE = config["database"].get("type", self.DB_TYPE)
+
+                        # SQLite配置
+                        if config["database"].get("sqlite"):
+                            self.DB_FILE = config["database"]["sqlite"].get(
+                                "file", self.DB_FILE
+                            )
+
+                        # MySQL配置
+                        if config["database"].get("mysql"):
+                            mysql_config = config["database"]["mysql"]
+                            self.MYSQL_HOST = mysql_config.get("host", self.MYSQL_HOST)
+                            self.MYSQL_PORT = mysql_config.get("port", self.MYSQL_PORT)
+                            self.MYSQL_USER = mysql_config.get("user", self.MYSQL_USER)
+                            self.MYSQL_PASSWORD = mysql_config.get(
+                                "password", self.MYSQL_PASSWORD
+                            )
+                            self.MYSQL_DB = mysql_config.get("db", self.MYSQL_DB)
+                            self.MYSQL_CHARSET = mysql_config.get(
+                                "charset", self.MYSQL_CHARSET
+                            )
 
                     if config.get("upload"):
                         self.UPLOAD_DIR = config["upload"].get("dir", self.UPLOAD_DIR)
@@ -136,9 +170,31 @@ class Settings(BaseSettings):
 
     def update_db_urls(self):
         """更新数据库URL"""
-        db_path = os.path.abspath(self.DB_FILE)
-        self.DATABASE_URL = f"sqlite+aiosqlite:///{db_path}"
-        self.SYNC_DATABASE_URL = f"sqlite:///{db_path}"
+        if self.DB_TYPE.lower() == "sqlite":
+            # SQLite配置
+            db_path = os.path.abspath(self.DB_FILE)
+            self.DATABASE_URL = f"sqlite+aiosqlite:///{db_path}"
+            self.SYNC_DATABASE_URL = f"sqlite:///{db_path}"
+            logger.info(f"使用SQLite数据库: {db_path}")
+        elif self.DB_TYPE.lower() == "mysql":
+            # MySQL配置
+            self.DATABASE_URL = (
+                f"mysql+aiomysql://{self.MYSQL_USER}:{self.MYSQL_PASSWORD}@"
+                f"{self.MYSQL_HOST}:{self.MYSQL_PORT}/{self.MYSQL_DB}?charset={self.MYSQL_CHARSET}"
+            )
+            self.SYNC_DATABASE_URL = (
+                f"mysql+pymysql://{self.MYSQL_USER}:{self.MYSQL_PASSWORD}@"
+                f"{self.MYSQL_HOST}:{self.MYSQL_PORT}/{self.MYSQL_DB}?charset={self.MYSQL_CHARSET}"
+            )
+            logger.info(
+                f"使用MySQL数据库: {self.MYSQL_HOST}:{self.MYSQL_PORT}/{self.MYSQL_DB}"
+            )
+        else:
+            # 默认使用SQLite
+            logger.warning(f"不支持的数据库类型: {self.DB_TYPE}，默认使用SQLite")
+            db_path = os.path.abspath(self.DB_FILE)
+            self.DATABASE_URL = f"sqlite+aiosqlite:///{db_path}"
+            self.SYNC_DATABASE_URL = f"sqlite:///{db_path}"
 
 
 @lru_cache()

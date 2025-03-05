@@ -44,8 +44,12 @@ async def create_default_platforms():
 
 async def init_all():
     """执行所有初始化步骤"""
+    # 初始化社交账号相关表
     await init_social_account_tables()
+
+    # 创建默认平台数据
     await create_default_platforms()
+
     print("Social account initialization completed.")
 
 
