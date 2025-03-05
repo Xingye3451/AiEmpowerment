@@ -50,7 +50,7 @@ import axios from 'axios';
 import VideoPreview from './VideoPreview';
 import SchedulePost from './SchedulePost';
 import PublishStats from './PublishStats';
-import { DOUYIN_API } from '../config/api';
+import { DISTRIBUTE_API, SOCIAL_ACCOUNT_API, TASK_API } from '../config/api';
 import { API_BASE_URL } from '../config';
 
 interface VideoInfo {
@@ -163,7 +163,7 @@ const ContentDistributor: React.FC = () => {
   // 获取任务列表
   const fetchTasks = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/social/distribute`, {
+      const response = await axios.get(DISTRIBUTE_API.LIST, {
         withCredentials: true
       });
       setTasks(response.data);
@@ -184,7 +184,7 @@ const ContentDistributor: React.FC = () => {
       
       if (pendingTasks.length === 0) return;
       
-      const response = await axios.get(`${API_BASE_URL}/social/distribute`, {
+      const response = await axios.get(DISTRIBUTE_API.LIST, {
         withCredentials: true
       });
       
@@ -207,7 +207,7 @@ const ContentDistributor: React.FC = () => {
   // 获取社交账号列表
   const fetchAccounts = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/social/accounts`, {
+      const response = await axios.get(SOCIAL_ACCOUNT_API.LIST, {
         withCredentials: true
       });
       setAccounts(response.data);
@@ -220,7 +220,7 @@ const ContentDistributor: React.FC = () => {
   // 获取账号分组列表
   const fetchGroups = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/social/groups`, {
+      const response = await axios.get(SOCIAL_ACCOUNT_API.GROUPS, {
         withCredentials: true
       });
       setGroups(response.data);
@@ -246,7 +246,7 @@ const ContentDistributor: React.FC = () => {
   // 获取历史记录
   const fetchHistory = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/social/distribute?status=completed`, {
+      const response = await axios.get(`${DISTRIBUTE_API.LIST}?status=completed`, {
         withCredentials: true
       });
       setHistory(response.data);
@@ -389,7 +389,7 @@ const ContentDistributor: React.FC = () => {
         scheduled_time: scheduledTime
       };
 
-      const response = await axios.post(`${API_BASE_URL}/social/distribute`, taskData, {
+      const response = await axios.post(DISTRIBUTE_API.CREATE, taskData, {
         withCredentials: true
       });
 

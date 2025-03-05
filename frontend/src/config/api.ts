@@ -36,6 +36,38 @@ export const ADMIN_API = {
     UPDATE_USER: (userId: string) => `${BASE_URL}/admin/users/${userId}`,
 };
 
+// 内容分发API路径配置
+export const DISTRIBUTE_API = {
+    LIST: `${BASE_URL}/social/distribute`,
+    CREATE: `${BASE_URL}/social/distribute`,
+    DETAIL: (taskId: string) => `${BASE_URL}/social/distribute/${taskId}`,
+    STATUS: (taskId: string) => `${BASE_URL}/social/distribute/${taskId}/status`,
+    CANCEL: (taskId: string) => `${BASE_URL}/social/distribute/${taskId}/cancel`,
+};
+
+// 社交平台账号API路径配置
+export const SOCIAL_ACCOUNT_API = {
+    LIST: `${BASE_URL}/social/accounts`,
+    CREATE: `${BASE_URL}/social/accounts`,
+    UPDATE: (accountId: string) => `${BASE_URL}/social/accounts/${accountId}`,
+    DELETE: (accountId: string) => `${BASE_URL}/social/accounts/${accountId}`,
+    STATUS: (accountId: string) => `${BASE_URL}/social/accounts/${accountId}/status`,
+    GROUPS: `${BASE_URL}/social/account-groups`,
+    GROUP_DETAIL: (groupId: string) => `${BASE_URL}/social/account-groups/${groupId}`,
+};
+
+// 任务管理API路径配置
+export const TASK_API = {
+    LIST: `${BASE_URL}/tasks`,
+    CREATE: `${BASE_URL}/tasks`,
+    DETAIL: (taskId: string) => `${BASE_URL}/tasks/${taskId}`,
+    UPDATE: (taskId: string) => `${BASE_URL}/tasks/${taskId}`,
+    DELETE: (taskId: string) => `${BASE_URL}/tasks/${taskId}`,
+    STATUS: (taskId: string) => `${BASE_URL}/tasks/${taskId}/status`,
+    CANCEL: (taskId: string) => `${BASE_URL}/tasks/${taskId}/cancel`,
+    RETRY: (taskId: string) => `${BASE_URL}/tasks/${taskId}/retry`,
+};
+
 // Douyin API 路径配置
 export const DOUYIN_API = {
     UPLOAD_VIDEO: `${BASE_URL}/douyin/upload-video`,
@@ -51,12 +83,19 @@ export const DOUYIN_API = {
     ACCOUNTS: `${BASE_URL}/douyin/accounts`,
     HISTORY: `${BASE_URL}/douyin/history`,
     STATS: `${BASE_URL}/douyin/stats`,
-    // 新增的视频处理相关API
     BATCH_PROCESS_VIDEOS: `${BASE_URL}/douyin/batch-process-videos`,
     PROCESS_STATUS: (taskId: string) => `${BASE_URL}/douyin/process-status/${taskId}`,
-    // 处理模式相关API
     CHECK_LOCAL_PROCESSING: `${BASE_URL}/douyin/check-local-processing`,
-    // 处理后视频相关API
     PROCESSED_VIDEO: (taskId: string) => `${BASE_URL}/douyin/processed-video/${taskId}`,
     PROCESSED_VIDEO_THUMBNAIL: (taskId: string) => `${BASE_URL}/douyin/processed-video-thumbnail/${taskId}`,
+};
+
+// 通知API路径配置
+export const NOTIFICATION_API = {
+    LIST: `${BASE_URL}/notifications`,
+    COUNT: `${BASE_URL}/notifications/count`,
+    READ: (notificationId: string) => `${BASE_URL}/notifications/${notificationId}/read`,
+    READ_ALL: `${BASE_URL}/notifications/read-all`,
+    DELETE: (notificationId: string) => `${BASE_URL}/notifications/${notificationId}`,
+    DELETE_ALL: `${BASE_URL}/notifications`,
 };

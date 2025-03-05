@@ -29,6 +29,7 @@ import {
   Warning as WarningIcon,
   Error as ErrorIcon,
 } from '@mui/icons-material';
+import { NOTIFICATION_API } from '../config/api';
 import axios from 'axios';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
@@ -101,7 +102,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onNavigate }) =
   const fetchNotificationCount = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get(`${BASE_URL}/notifications/count`, {
+      const response = await axios.get(NOTIFICATION_API.COUNT, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -152,7 +153,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onNavigate }) =
   const handleMarkAsRead = async (notificationId: string) => {
     try {
       const token = localStorage.getItem('token');
-      await axios.post(`/api/v1/notifications/${notificationId}/read`, {}, {
+      await axios.post(NOTIFICATION_API.READ(notificationId), {}, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -178,7 +179,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onNavigate }) =
   const handleMarkAllAsRead = async () => {
     try {
       const token = localStorage.getItem('token');
-      await axios.post('/api/v1/notifications/read-all', {}, {
+      await axios.post(NOTIFICATION_API.READ_ALL, {}, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -204,7 +205,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onNavigate }) =
   const handleDeleteNotification = async (notificationId: string) => {
     try {
       const token = localStorage.getItem('token');
-      await axios.delete(`/api/v1/notifications/${notificationId}`, {
+      await axios.delete(NOTIFICATION_API.DELETE(notificationId), {
         headers: {
           Authorization: `Bearer ${token}`,
         },

@@ -83,7 +83,7 @@ const AdminDashboard = () => {
   const [currentTab, setCurrentTab] = useState(0);
   const [changePasswordDialog, setChangePasswordDialog] = useState(false);
   const [passwordData, setPasswordData] = useState({
-    old_password: '',
+    current_password: '',
     new_password: '',
   });
   const navigate = useNavigate();
@@ -230,7 +230,14 @@ const AdminDashboard = () => {
       );
       setSuccess('密码修改成功');
       setChangePasswordDialog(false);
-      setPasswordData({ old_password: '', new_password: '' });
+      setPasswordData({ current_password: '', new_password: '' });
+      
+      // 显示成功消息，然后延迟1秒后退出登录
+      setTimeout(() => {
+        setSuccess('密码已修改，请重新登录');
+        // 调用登出函数
+        handleLogout();
+      }, 1000);
     } catch (error: any) {
       setError(error.response?.data?.detail || '修改密码失败');
     }
@@ -938,8 +945,8 @@ const AdminDashboard = () => {
             type="password"
             fullWidth
             required
-            value={passwordData.old_password}
-            onChange={(e) => setPasswordData({ ...passwordData, old_password: e.target.value })}
+            value={passwordData.current_password}
+            onChange={(e) => setPasswordData({ ...passwordData, current_password: e.target.value })}
           />
           <TextField
             margin="dense"

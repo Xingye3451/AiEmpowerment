@@ -34,6 +34,7 @@ import {
 import axios from 'axios';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
+import { BASE_URL } from '../config/api';
 
 interface Notification {
   id: string;
@@ -73,7 +74,7 @@ const NotificationsPage: React.FC<NotificationsPageProps> = ({ onNavigate }) => 
       const token = localStorage.getItem('token');
       const status = tabValue === 1 ? 'unread' : tabValue === 2 ? 'read' : undefined;
       
-      const response = await axios.get('/api/v1/notifications', {
+      const response = await axios.get(`${BASE_URL}/notifications`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -110,7 +111,7 @@ const NotificationsPage: React.FC<NotificationsPageProps> = ({ onNavigate }) => 
   const handleMarkAsRead = async (notificationId: string) => {
     try {
       const token = localStorage.getItem('token');
-      await axios.post(`/api/v1/notifications/${notificationId}/read`, {}, {
+      await axios.post(`${BASE_URL}/notifications/${notificationId}/read`, {}, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -133,7 +134,7 @@ const NotificationsPage: React.FC<NotificationsPageProps> = ({ onNavigate }) => 
   const handleMarkAllAsRead = async () => {
     try {
       const token = localStorage.getItem('token');
-      await axios.post('/api/v1/notifications/read-all', {}, {
+      await axios.post(`${BASE_URL}/notifications/read-all`, {}, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -158,7 +159,7 @@ const NotificationsPage: React.FC<NotificationsPageProps> = ({ onNavigate }) => 
     
     try {
       const token = localStorage.getItem('token');
-      await axios.delete(`/api/v1/notifications/${selectedNotification.id}`, {
+      await axios.delete(`${BASE_URL}/notifications/${selectedNotification.id}`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -181,7 +182,7 @@ const NotificationsPage: React.FC<NotificationsPageProps> = ({ onNavigate }) => 
       const token = localStorage.getItem('token');
       const status = tabValue === 1 ? 'unread' : tabValue === 2 ? 'read' : undefined;
       
-      await axios.delete('/api/v1/notifications', {
+      await axios.delete(`${BASE_URL}/notifications`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },

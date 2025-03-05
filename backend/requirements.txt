@@ -4,7 +4,7 @@ uvicorn>=0.15.0
 python-multipart>=0.0.5
 
 # Database
-sqlalchemy>=1.4.23
+sqlalchemy>=1.4.23,<2.0.0
 aiosqlite>=0.17.0
 greenlet>=2.0.0
 # MySQL支持
