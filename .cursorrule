@@ -1,0 +1,482 @@
+{
+  "name": "AI赋能项目",
+  "description": "一个前后端分离的AI赋能应用，前端使用React+TypeScript，后端使用FastAPI",
+  "projectStructure": {
+    "frontend": {
+      "description": "React+TypeScript前端应用",
+      "mainComponents": [
+        {
+          "name": "认证模块",
+          "files": ["Login.tsx", "Register.tsx", "ForgotPassword.tsx", "AdminLogin.tsx"],
+          "description": "用户认证相关组件"
+        },
+        {
+          "name": "仪表盘模块",
+          "files": ["Dashboard.tsx", "AdminDashboard.tsx"],
+          "description": "用户和管理员仪表盘"
+        },
+        {
+          "name": "内容管理模块",
+          "files": ["ContentCollector.tsx", "ContentDistributor.tsx", "AIVideoProcessor.tsx"],
+          "description": "内容采集、分发和AI视频处理"
+        },
+        {
+          "name": "社交账号模块",
+          "files": ["SocialAccountManager.tsx", "DouyinManager.tsx", "AccountGroups.tsx"],
+          "description": "社交媒体账号管理，特别是抖音账号"
+        },
+        {
+          "name": "任务管理模块",
+          "files": ["TaskManager.tsx", "ScheduledTaskManager.tsx"],
+          "description": "任务和定时任务管理"
+        },
+        {
+          "name": "通知模块",
+          "files": ["NotificationCenter.tsx", "NotificationsPage.tsx"],
+          "description": "系统通知管理"
+        }
+      ],
+      "apiServices": [
+        {
+          "name": "auth.ts",
+          "baseUrl": "http://localhost:8000/api/v1/auth",
+          "endpoints": ["login", "logout"]
+        },
+        {
+          "name": "user.ts",
+          "baseUrl": "http://localhost:8000/api/v1/users",
+          "endpoints": ["getProfile", "updateProfile"]
+        },
+        {
+          "name": "douyin.ts",
+          "baseUrl": "http://localhost:8000/api/v1/douyin",
+          "endpoints": ["getAccounts", "addAccount", "removeAccount"]
+        }
+      ]
+    },
+    "backend": {
+      "description": "FastAPI后端应用",
+      "mainModules": [
+        {
+          "name": "API路由",
+          "path": "app/api/v1",
+          "files": [
+            "auth.py", 
+            "users.py", 
+            "douyin.py", 
+            "social_accounts.py", 
+            "content_collection.py", 
+            "scheduled_tasks.py", 
+            "admin.py", 
+            "notifications.py"
+          ]
+        },
+        {
+          "name": "数据模型",
+          "path": "app/models",
+          "files": [
+            "user.py", 
+            "task.py", 
+            "scheduled_task.py", 
+            "social_account.py", 
+            "notification.py", 
+            "comfyui.py", 
+            "content_collection.py"
+          ]
+        },
+        {
+          "name": "服务层",
+          "path": "app/services",
+          "files": [
+            "task_service.py", 
+            "notification_service.py"
+          ]
+        },
+        {
+          "name": "核心功能",
+          "path": "app/core",
+          "description": "包含配置、调度器、任务队列等核心功能"
+        }
+      ]
+    }
+  },
+  "workflowChains": [
+    {
+      "name": "用户认证流程",
+      "steps": [
+        "前端Login.tsx组件调用auth.ts服务的login方法",
+        "auth.ts发送POST请求到/api/v1/auth/login",
+        "后端auth.py路由处理请求，验证用户凭据",
+        "返回JWT令牌给前端",
+        "前端存储令牌到localStorage并重定向到Dashboard"
+      ]
+    },
+    {
+      "name": "内容采集流程",
+      "steps": [
+        "用户在ContentCollector.tsx中提交采集请求",
+        "前端发送请求到/api/v1/collection/collect",
+        "后端content_collection.py处理请求",
+        "创建采集任务并加入任务队列",
+        "任务完成后通过WebSocket通知前端",
+        "前端更新UI显示采集结果"
+      ]
+    },
+    {
+      "name": "视频处理流程",
+      "steps": [
+        "用户在AIVideoProcessor.tsx中上传视频",
+        "前端发送请求到/api/v1/douyin/process-video",
+        "后端douyin.py处理请求",
+        "调用AI服务处理视频",
+        "处理完成后通知前端",
+        "前端显示处理结果"
+      ]
+    },
+    {
+      "name": "定时任务流程",
+      "steps": [
+        "用户在ScheduledTaskManager.tsx中创建定时任务",
+        "前端发送请求到/api/v1/scheduled-tasks/create",
+        "后端scheduled_tasks.py处理请求",
+        "创建定时任务并加入调度器",
+        "任务执行时通知用户"
+      ]
+    }
+  ],
+  "apiRouteStructure": {
+    "baseUrl": "http://localhost:8000/api/v1",
+    "endpoints": [
+      {
+        "path": "/auth",
+        "methods": ["POST /login", "POST /logout"],
+        "description": "用户认证相关接口"
+      },
+      {
+        "path": "/users",
+        "methods": ["GET /{user_id}", "PUT /{user_id}", "GET /me"],
+        "description": "用户管理相关接口"
+      },
+      {
+        "path": "/douyin",
+        "methods": [
+          "GET /accounts", 
+          "POST /accounts", 
+          "DELETE /accounts/{account_id}",
+          "POST /process-video",
+          "GET /statistics"
+        ],
+        "description": "抖音账号和视频处理相关接口"
+      },
+      {
+        "path": "/social",
+        "methods": [
+          "GET /accounts", 
+          "POST /accounts", 
+          "PUT /accounts/{account_id}", 
+          "DELETE /accounts/{account_id}"
+        ],
+        "description": "社交账号管理接口"
+      },
+      {
+        "path": "/collection",
+        "methods": [
+          "POST /collect", 
+          "GET /tasks", 
+          "GET /tasks/{task_id}"
+        ],
+        "description": "内容采集相关接口"
+      },
+      {
+        "path": "/scheduled-tasks",
+        "methods": [
+          "POST /create", 
+          "GET /list", 
+          "PUT /{task_id}", 
+          "DELETE /{task_id}"
+        ],
+        "description": "定时任务管理接口"
+      },
+      {
+        "path": "/admin",
+        "methods": [
+          "POST /login", 
+          "GET /users", 
+          "GET /statistics"
+        ],
+        "description": "管理员相关接口"
+      },
+      {
+        "path": "/notifications",
+        "methods": [
+          "GET /list", 
+          "PUT /{notification_id}/read", 
+          "DELETE /{notification_id}"
+        ],
+        "description": "通知管理接口"
+      }
+    ]
+  },
+  "troubleshootingSequence": {
+    "apiRequestIssues": [
+      "检查前端API调用参数是否正确",
+      "检查网络请求是否发送（浏览器开发者工具Network标签）",
+      "检查API URL是否正确（config.ts中的API_BASE_URL）",
+      "检查后端路由是否正确注册（api.py）",
+      "检查后端路由处理函数是否正确实现",
+      "检查后端依赖项是否正确注入",
+      "检查数据库连接是否正常",
+      "检查日志文件查看详细错误信息"
+    ]
+  },
+  "keyVariables": {
+    "frontend": [
+      {
+        "name": "API_BASE_URL",
+        "location": "src/config.ts",
+        "value": "http://localhost:8000",
+        "description": "API基础URL"
+      },
+      {
+        "name": "token",
+        "location": "localStorage",
+        "description": "JWT认证令牌"
+      }
+    ],
+    "backend": [
+      {
+        "name": "API_V1_STR",
+        "location": "app/core/config.py",
+        "value": "/api/v1",
+        "description": "API版本前缀"
+      },
+      {
+        "name": "SECRET_KEY",
+        "location": ".env",
+        "description": "JWT加密密钥"
+      },
+      {
+        "name": "DATABASE_URL",
+        "location": ".env",
+        "description": "数据库连接URL"
+      }
+    ]
+  },
+  "dependencyManagement": {
+    "rules": [
+      {
+        "name": "后端依赖管理",
+        "description": "更新Python依赖时的规则",
+        "steps": [
+          "添加新依赖到backend/requirements.txt文件中，指定版本号",
+          "在本地环境测试新依赖是否正常工作",
+          "如果依赖需要在容器中使用，检查并更新backend/Dockerfile",
+          "如果依赖需要特殊的系统库支持，在Dockerfile中添加相应的apt-get安装命令",
+          "更新后重新构建容器并测试"
+        ]
+      },
+      {
+        "name": "前端依赖管理",
+        "description": "更新Node.js依赖时的规则",
+        "steps": [
+          "使用npm install --save或yarn add添加新依赖",
+          "确保package.json和package-lock.json或yarn.lock被更新",
+          "在本地环境测试新依赖是否正常工作",
+          "如果依赖需要在容器中使用，检查并更新frontend/Dockerfile",
+          "更新后重新构建容器并测试"
+        ]
+      }
+    ],
+    "files": [
+      {
+        "name": "backend/requirements.txt",
+        "description": "后端Python依赖列表",
+        "updateRule": "添加新依赖时应指定版本号，避免使用最新版(latest)"
+      },
+      {
+        "name": "frontend/package.json",
+        "description": "前端Node.js依赖列表",
+        "updateRule": "添加新依赖时应指定版本号，避免使用最新版(^latest)"
+      },
+      {
+        "name": "backend/Dockerfile",
+        "description": "后端容器构建文件",
+        "updateRule": "添加系统级依赖时应在同一RUN命令中执行apt-get update和install"
+      },
+      {
+        "name": "frontend/Dockerfile",
+        "description": "前端容器构建文件",
+        "updateRule": "添加构建依赖时应考虑使用多阶段构建减小最终镜像大小"
+      }
+    ]
+  },
+  "routeChangePolicy": {
+    "description": "API路由变更管理策略",
+    "rules": [
+      {
+        "name": "路由变更审核",
+        "description": "所有API路由的变更必须经过项目负责人审核",
+        "steps": [
+          "提出路由变更需求，说明变更原因和影响范围",
+          "创建路由变更的详细设计文档",
+          "提交变更设计给项目负责人审核",
+          "获得审核通过后才能实施变更",
+          "变更实施后进行全面测试，确保不影响现有功能"
+        ]
+      },
+      {
+        "name": "路由兼容性维护",
+        "description": "确保API路由变更不破坏现有功能",
+        "steps": [
+          "优先考虑添加新路由而非修改现有路由",
+          "如需修改现有路由，应保持向后兼容性",
+          "对于不可避免的破坏性变更，应提供过渡期和迁移方案",
+          "所有路由变更必须更新API文档",
+          "变更后必须进行全面的集成测试"
+        ]
+      }
+    ],
+    "criticalRoutes": [
+      {
+        "path": "/api/v1/auth",
+        "description": "认证相关路由，变更影响所有需要认证的功能",
+        "riskLevel": "高"
+      },
+      {
+        "path": "/api/v1/users",
+        "description": "用户管理路由，变更影响用户信息和权限",
+        "riskLevel": "高"
+      },
+      {
+        "path": "/api/v1/douyin",
+        "description": "抖音管理路由，变更影响抖音账号管理和视频处理",
+        "riskLevel": "高"
+      },
+      {
+        "path": "/api/v1/social",
+        "description": "社交账号路由，变更影响社交媒体集成",
+        "riskLevel": "中"
+      }
+    ]
+  },
+  "rules": [
+    {
+      "name": "前端代码规范",
+      "description": "React+TypeScript前端代码规范",
+      "pattern": "frontend/**/*.{ts,tsx,js,jsx}",
+      "conventions": [
+        {
+          "name": "组件命名",
+          "description": "组件文件名应使用PascalCase",
+          "pattern": "frontend/src/components/**/*.tsx",
+          "example": "UserProfile.tsx, LoginForm.tsx"
+        },
+        {
+          "name": "工具函数命名",
+          "description": "工具函数文件名应使用camelCase",
+          "pattern": "frontend/src/utils/**/*.ts",
+          "example": "formatDate.ts, apiHelpers.ts"
+        },
+        {
+          "name": "React Hooks规范",
+          "description": "自定义Hooks应以use前缀命名",
+          "pattern": "frontend/src/**/*.ts",
+          "example": "useAuth.ts, useFormValidation.ts"
+        },
+        {
+          "name": "API服务命名",
+          "description": "API服务文件应使用camelCase并以服务名称命名",
+          "pattern": "frontend/src/services/**/*.ts",
+          "example": "auth.ts, user.ts, douyin.ts"
+        }
+      ]
+    },
+    {
+      "name": "后端代码规范",
+      "description": "FastAPI+Python后端代码规范",
+      "pattern": "backend/**/*.py",
+      "conventions": [
+        {
+          "name": "API路由命名",
+          "description": "API路由文件应使用snake_case命名",
+          "pattern": "backend/app/api/**/*.py",
+          "example": "user_routes.py, auth_routes.py"
+        },
+        {
+          "name": "模型命名",
+          "description": "数据库模型应使用PascalCase命名",
+          "pattern": "backend/app/models/**/*.py",
+          "example": "User.py, UserProfile.py"
+        },
+        {
+          "name": "服务命名",
+          "description": "服务文件应使用snake_case命名",
+          "pattern": "backend/app/services/**/*.py",
+          "example": "auth_service.py, user_service.py"
+        },
+        {
+          "name": "路由函数命名",
+          "description": "路由处理函数应使用snake_case命名",
+          "pattern": "backend/app/api/**/*.py",
+          "example": "get_user(), create_user()"
+        },
+        {
+          "name": "依赖函数命名",
+          "description": "依赖注入函数应使用get_前缀",
+          "pattern": "backend/app/api/deps.py",
+          "example": "get_current_user(), get_db()"
+        }
+      ]
+    },
+    {
+      "name": "文档规范",
+      "description": "项目文档规范",
+      "pattern": "**/*.md",
+      "conventions": [
+        {
+          "name": "文档标题格式",
+          "description": "文档标题应使用#号标记，并遵循层级结构",
+          "example": "# 主标题\n## 二级标题\n### 三级标题"
+        }
+      ]
+    },
+    {
+      "name": "AI相关代码规范",
+      "description": "AI服务和模型相关代码规范",
+      "pattern": "backend/app/core/**/*.py",
+      "conventions": [
+        {
+          "name": "AI服务命名",
+          "description": "AI服务类应以Service结尾",
+          "example": "TextGenerationService, ImageProcessingService"
+        },
+        {
+          "name": "模型加载函数",
+          "description": "模型加载函数应以load_前缀命名",
+          "example": "load_text_model(), load_image_model()"
+        }
+      ]
+    },
+    {
+      "name": "Docker配置规范",
+      "description": "Docker相关配置文件规范",
+      "pattern": "**/{Dockerfile,docker-compose.yml}",
+      "conventions": [
+        {
+          "name": "基础镜像版本",
+          "description": "应明确指定基础镜像版本，避免使用latest标签",
+          "example": "FROM python:3.9-slim, FROM node:18-alpine"
+        }
+      ]
+    }
+  ],
+  "ignorePatterns": [
+    "node_modules/**",
+    "**/__pycache__/**",
+    "**/build/**",
+    "**/dist/**",
+    "**/logs/**",
+    "**/uploads/**",
+    "**/.git/**"
+  ]
+}

@@ -23,6 +23,78 @@ server_should_exit = False
 force_exit_timer = None
 
 
+# 修复Windows环境下的asyncio ProactorBasePipeTransport _call_connection_lost错误
+def patch_asyncio():
+    """
+    修复Windows环境下的asyncio ProactorBasePipeTransport _call_connection_lost错误
+    这个错误通常在程序退出时出现，是由于Windows下的ProactorEventLoop在关闭时的一个已知问题
+    """
+    if sys.platform == "win32":
+        # 仅在Windows环境下应用补丁
+        try:
+            import asyncio.proactor_events
+
+            # 保存原始的_call_connection_lost方法
+            original_call_connection_lost = (
+                asyncio.proactor_events._ProactorBasePipeTransport._call_connection_lost
+            )
+
+            # 创建一个包装方法来捕获ConnectionResetError异常
+            def _patched_call_connection_lost(self, exc):
+                try:
+                    return original_call_connection_lost(self, exc)
+                except ConnectionResetError as e:
+                    # 将错误转换为警告
+                    if (
+                        hasattr(self, "_loop")
+                        and self._loop
+                        and hasattr(self._loop, "get_debug")
+                        and self._loop.get_debug()
+                    ):
+                        logging.warning(f"忽略连接关闭时的错误: {e}")
+                    # 如果无法获取debug模式，也记录警告
+                    else:
+                        logging.warning(f"忽略连接关闭时的错误: {e}")
+                except RuntimeError as e:
+                    # 忽略"Event loop is closed"错误
+                    if str(e) == "Event loop is closed":
+                        if (
+                            hasattr(self, "_loop")
+                            and self._loop
+                            and hasattr(self._loop, "get_debug")
+                            and self._loop.get_debug()
+                        ):
+                            logging.warning(f"忽略事件循环已关闭的错误: {e}")
+                        else:
+                            logging.warning(f"忽略事件循环已关闭的错误: {e}")
+                except Exception as e:
+                    # 捕获所有其他可能的异常
+                    logging.warning(f"在_call_connection_lost中捕获到异常: {e}")
+
+            # 应用补丁
+            asyncio.proactor_events._ProactorBasePipeTransport._call_connection_lost = (
+                _patched_call_connection_lost
+            )
+
+            # 同样修复__del__方法中可能出现的问题
+            original_del = asyncio.proactor_events._ProactorBasePipeTransport.__del__
+
+            def _patched_del(self):
+                try:
+                    return original_del(self)
+                except Exception as e:
+                    logging.warning(f"忽略在__del__中的异常: {e}")
+
+            # 应用__del__补丁
+            asyncio.proactor_events._ProactorBasePipeTransport.__del__ = _patched_del
+
+            print("已应用asyncio ProactorBasePipeTransport补丁")
+        except (ImportError, AttributeError) as e:
+            print(f"应用asyncio补丁失败: {e}")
+        except Exception as e:
+            print(f"应用asyncio补丁时发生未知错误: {e}")
+
+
 # 强制退出函数
 def force_exit():
     print("\n服务器关闭超时，强制退出...")
@@ -322,6 +394,9 @@ def handle_exception(exc_type, exc_value, exc_traceback):
 
 
 if __name__ == "__main__":
+    # 应用asyncio补丁
+    patch_asyncio()
+
     # 设置自定义异常处理器
     sys.excepthook = handle_exception
 
