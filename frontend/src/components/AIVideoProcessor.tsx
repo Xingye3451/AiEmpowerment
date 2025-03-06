@@ -50,6 +50,7 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 import { DOUYIN_API } from '../config/api';
+import TaskStatusPoller from './temp/TaskStatusPoller';
 
 interface ProcessingTask {
   task_id: string;
@@ -605,6 +606,14 @@ const AIVideoProcessor: React.FC = () => {
     formData.append('generate_subtitles', generateSubtitles.toString());
     formData.append('processing_mode', processingMode);
 
+    console.log('提交视频处理请求:', {
+      视频数量: videoPreviews.length,
+      文本: text,
+      移除字幕: removeSubtitles,
+      生成字幕: generateSubtitles,
+      处理模式: processingMode
+    });
+
     try {
       const response = await axios.post(DOUYIN_API.BATCH_PROCESS_VIDEOS, formData, {
         headers: {
@@ -612,10 +621,33 @@ const AIVideoProcessor: React.FC = () => {
           'Authorization': `Bearer ${token}`
         },
       });
-      setProcessingTasks([...processingTasks, ...response.data.tasks]);
+      
+      console.log('视频处理请求成功:', response.data);
+      
+      if (response.data && response.data.tasks) {
+        console.log('创建的任务:', response.data.tasks);
+        setProcessingTasks([...processingTasks, ...response.data.tasks]);
+        
+        // 立即查询一次任务状态
+        for (const task of response.data.tasks) {
+          try {
+            const statusResponse = await axios.get(DOUYIN_API.PROCESS_STATUS(task.task_id), {
+              headers: {
+                'Authorization': `Bearer ${token}`
+              }
+            });
+            console.log(`任务 ${task.task_id} 状态:`, statusResponse.data);
+          } catch (statusErr) {
+            console.error(`获取任务 ${task.task_id} 状态失败:`, statusErr);
+          }
+        }
+      } else {
+        console.warn('响应中没有任务信息:', response.data);
+      }
     } catch (err: any) {
       console.error('视频处理失败:', err);
       const errorMessage = err.response?.data?.detail || '视频处理失败';
+      console.error('错误详情:', errorMessage);
       setError(errorMessage);
       
       if (err.response?.status === 401) {
@@ -666,6 +698,12 @@ const AIVideoProcessor: React.FC = () => {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      {/* 添加任务状态轮询组件 */}
+      <TaskStatusPoller 
+        processingTasks={processingTasks}
+        setProcessingTasks={setProcessingTasks}
+      />
+      
       <Card 
         elevation={3} 
         sx={{ 

@@ -40,6 +40,20 @@ async def list_notifications(
     }
 
 
+# 添加一个不带尾部斜杠的路由，重定向到带尾部斜杠的路由
+@router.get("", response_model=NotificationListResponse)
+async def list_notifications_no_slash(
+    skip: int = 0,
+    limit: int = 100,
+    status: Optional[str] = None,
+    type: Optional[str] = None,
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+):
+    """获取用户通知列表（不带尾部斜杠的路由）"""
+    return await list_notifications(skip, limit, status, type, db, current_user)
+
+
 @router.get("/count", response_model=NotificationCountResponse)
 async def get_notification_count(
     db: AsyncSession = Depends(deps.get_db),

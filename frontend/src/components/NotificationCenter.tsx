@@ -79,7 +79,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onNavigate }) =
     try {
       setLoading(true);
       const token = localStorage.getItem('token');
-      const response = await axios.get('/api/v1/notifications', {
+      const response = await axios.get(NOTIFICATION_API.LIST, {
         headers: {
           Authorization: `Bearer ${token}`,
         },

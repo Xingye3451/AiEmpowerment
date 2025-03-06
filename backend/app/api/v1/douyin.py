@@ -362,24 +362,24 @@ async def batch_post_video(
         },
     )
 
-    # 创建历史记录
-    history = current_user.douyin_history or []
-    history.append(
-        {
-            "task_id": task_id,
-            "video_id": str(uuid.uuid4()),  # 临时视频ID
-            "title": title,
-            "description": description,
-            "accounts": accounts,
-            "success_count": 0,
-            "failed_count": 0,
-            "created_at": datetime.now().isoformat(),
-            "status": "pending",
-            "retries": 0,
-        }
-    )
-    current_user.douyin_history = history
-    db.commit()
+    # 不再使用 douyin_history 字段，直接添加任务到队列
+    # history = current_user.douyin_history or []
+    # history.append(
+    #     {
+    #         "task_id": task_id,
+    #         "video_id": str(uuid.uuid4()),  # 临时视频ID
+    #         "title": title,
+    #         "description": description,
+    #         "accounts": accounts,
+    #         "success_count": 0,
+    #         "failed_count": 0,
+    #         "created_at": datetime.now().isoformat(),
+    #         "status": "pending",
+    #         "retries": 0,
+    #     }
+    # )
+    # current_user.douyin_history = history
+    # db.commit()
 
     await task_queue.add_task(task)
 
@@ -392,33 +392,124 @@ async def get_task_status(task_id: str, current_user: User = Depends(get_current
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    return {
+    # 确定任务结果
+    task_result = "unknown"
+    if task.status == TaskStatus.COMPLETED and not task.error:
+        task_result = "success"
+    elif task.status == TaskStatus.FAILED or task.error:
+        task_result = "failed"
+
+    response = {
         "task_id": task.task_id,
+        "type": task.task_type,  # 添加任务类型
         "status": task.status,
+        "result": task_result,  # 添加任务结果状态
         "progress": task.progress,
-        "result": task.result,
         "error": task.error,
         "created_at": task.created_at,
         "updated_at": task.updated_at,
+        "retry_count": task.retry_count,  # 添加重试次数
+        "data": task.data,  # 添加任务数据
     }
+
+    # 如果有结果数据，添加到响应中
+    if task.result:
+        response["result_data"] = task.result
+
+    return response
 
 
 @router.get("/tasks")
-async def get_user_tasks(current_user: User = Depends(get_current_user)):
+async def get_user_tasks(
+    status: str = None,
+    type: str = None,
+    result: str = None,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    获取用户的任务列表
+    - status: 任务状态过滤（pending, scheduled, running, completed）
+    - type: 任务类型过滤（video_processing, douyin_post）
+    - result: 任务结果过滤（success, failed）
+    """
     tasks = task_queue.get_all_tasks()
-    user_tasks = [task for task in tasks if task.data.get("user_id") == current_user.id]
+    result = []
 
-    return [
-        {
+    # 过滤任务
+    for task in tasks:
+        # 检查任务是否属于当前用户
+        task_user_id = task.data.get("user_id")
+        if task_user_id != current_user.id:
+            continue
+
+        # 根据状态过滤
+        if status:
+            status_list = status.split(",")
+            if task.status not in status_list:
+                continue
+
+        # 根据类型过滤
+        if type and task.task_type != type:
+            continue
+
+        # 根据结果过滤
+        if result:
+            # 确定任务结果
+            task_result = "success"
+            if task.error or (
+                isinstance(task.result, dict) and task.result.get("error")
+            ):
+                task_result = "failed"
+
+            if task_result != result:
+                continue
+
+        # 确定任务结果状态
+        task_result = "success"
+        if task.error or (isinstance(task.result, dict) and task.result.get("error")):
+            task_result = "failed"
+
+        # 构建任务信息
+        task_info = {
             "task_id": task.task_id,
             "type": task.task_type,
             "status": task.status,
             "progress": task.progress,
-            "created_at": task.created_at,
-            "updated_at": task.updated_at,
+            "created_at": task.created_at.isoformat(),
+            "updated_at": task.updated_at.isoformat(),
+            "error": task.error,
+            "result": task_result,  # 添加结果状态
+            "retry_count": task.retry_count,  # 添加重试次数
         }
-        for task in user_tasks
-    ]
+
+        # 添加特定任务类型的信息
+        if task.task_type == "video_processing":
+            task_info.update(
+                {
+                    "original_filename": os.path.basename(
+                        task.data.get("original_path", "")
+                    ),
+                    "text": task.data.get("text", ""),
+                    "remove_subtitles": task.data.get("remove_subtitles", False),
+                    "generate_subtitles": task.data.get("generate_subtitles", False),
+                }
+            )
+
+            # 如果任务已完成，添加下载链接
+            if task.status == TaskStatus.COMPLETED and task.result:
+                task_info.update(
+                    {
+                        "download_url": f"/api/v1/douyin/processed-video/{task.task_id}",
+                        "thumbnail_url": f"/api/v1/douyin/processed-video-thumbnail/{task.task_id}",
+                        "filename": os.path.basename(
+                            task.result.get("processed_path", "")
+                        ),
+                    }
+                )
+
+        result.append(task_info)
+
+    return result
 
 
 @router.post("/groups")
@@ -528,33 +619,61 @@ async def schedule_post(
     }
 
 
+@router.get("/task-history")
+async def get_task_history(current_user: User = Depends(get_current_user)):
+    """
+    获取用户的任务历史记录（已弃用）
+
+    此接口已弃用，请使用 /tasks?status=completed 接口代替
+    """
+    # 重定向到 get_user_tasks 函数，获取已完成的任务
+    return await get_user_tasks(status="completed", current_user=current_user)
+
+
 @router.get("/history")
 async def get_post_history(current_user: User = Depends(get_current_user)):
-    return current_user.douyin_history or []
+    """
+    获取历史任务记录（已弃用）
+
+    此接口已弃用，请使用 /tasks?status=completed 接口代替
+    """
+    # 重定向到 get_user_tasks 函数，获取已完成的任务
+    return await get_user_tasks(status="completed", current_user=current_user)
 
 
 @router.get("/stats")
 async def get_stats(current_user: User = Depends(get_current_user)):
-    history = current_user.douyin_history or []
-    total_posts = len(history)
-    success_count = sum(1 for post in history if post.get("success_count", 0) > 0)
-    account_stats = {}
+    """获取任务统计信息"""
+    # 获取所有任务
+    all_tasks = await get_user_tasks(current_user=current_user)
 
-    for post in history:
-        for account in post.get("accounts", []):
-            if account not in account_stats:
-                account_stats[account] = {"success": 0, "failed": 0}
-
-            if account in post.get("success_accounts", []):
-                account_stats[account]["success"] += 1
-            elif account in post.get("failed_accounts", []):
-                account_stats[account]["failed"] += 1
-
-    success_rate = (success_count / total_posts) if total_posts > 0 else 0
-
-    return DouyinStats(
-        total_posts=total_posts, success_rate=success_rate, account_stats=account_stats
+    # 统计信息
+    total_tasks = len(all_tasks)
+    completed_tasks = sum(
+        1 for task in all_tasks if task.get("status") == TaskStatus.COMPLETED
     )
+    failed_tasks = sum(
+        1 for task in all_tasks if task.get("status") == TaskStatus.FAILED
+    )
+    running_tasks = sum(
+        1 for task in all_tasks if task.get("status") == TaskStatus.RUNNING
+    )
+
+    # 按类型统计
+    task_types = {}
+    for task in all_tasks:
+        task_type = task.get("type")
+        if task_type not in task_types:
+            task_types[task_type] = 0
+        task_types[task_type] += 1
+
+    return {
+        "total_tasks": total_tasks,
+        "completed_tasks": completed_tasks,
+        "failed_tasks": failed_tasks,
+        "running_tasks": running_tasks,
+        "task_types": task_types,
+    }
 
 
 @router.post("/preview")
@@ -805,7 +924,11 @@ async def batch_process_videos(
             )
 
             # 保存任务到数据库
-            task_queue.add_task(task)
+            logger.info(
+                f"创建任务: ID={task_id}, 类型={task.task_type}, 用户ID={current_user.id}"
+            )
+            await task_queue.add_task(task)
+            logger.info(f"任务已添加到队列: ID={task_id}")
 
             processed_videos.append(
                 {
@@ -825,11 +948,53 @@ async def batch_process_videos(
 async def get_process_status(
     task_id: str, current_user: User = Depends(get_current_user)
 ):
+    """获取任务处理状态的详细信息"""
     task = task_queue.get_task(task_id)
     if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=404, detail="任务不存在")
 
-    return {"status": task.status, "progress": task.progress, "result": task.result}
+    # 确定任务结果
+    task_result = "unknown"
+    if task.status == TaskStatus.COMPLETED and not task.error:
+        task_result = "success"
+    elif task.status == TaskStatus.FAILED or task.error:
+        task_result = "failed"
+
+    response = {
+        "task_id": task.task_id,
+        "type": task.task_type,  # 添加任务类型
+        "status": task.status,
+        "result": task_result,  # 添加任务结果状态
+        "progress": task.progress,
+        "error": task.error,
+        "created_at": (
+            task.created_at.isoformat()
+            if hasattr(task.created_at, "isoformat")
+            else task.created_at
+        ),
+        "updated_at": (
+            task.updated_at.isoformat()
+            if hasattr(task.updated_at, "isoformat")
+            else task.updated_at
+        ),
+        "retry_count": task.retry_count,  # 添加重试次数
+    }
+
+    # 添加任务数据的安全副本（排除敏感信息）
+    if task.data:
+        safe_data = task.data.copy()
+        # 排除可能的敏感信息
+        if "password" in safe_data:
+            safe_data.pop("password")
+        if "token" in safe_data:
+            safe_data.pop("token")
+        response["data"] = safe_data
+
+    # 如果有结果数据，添加到响应中
+    if task.result:
+        response["result_data"] = task.result
+
+    return response
 
 
 @router.get("/processed-video/{task_id}")
@@ -949,3 +1114,31 @@ async def upload_video_with_preview(
 ):
     """上传视频并生成预览图的专用路由"""
     return await upload_video(file, title, description, current_user)
+
+
+@router.get("/debug/tasks")
+async def debug_tasks(current_user: User = Depends(get_current_user)):
+    """
+    调试端点，用于查看所有任务的状态
+    """
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="只有管理员可以访问此端点")
+
+    tasks = task_queue.get_all_tasks()
+    result = []
+
+    for task in tasks:
+        task_info = {
+            "task_id": task.task_id,
+            "type": task.task_type,
+            "status": task.status,
+            "progress": task.progress,
+            "created_at": task.created_at,
+            "updated_at": task.updated_at,
+            "error": task.error,
+            "retry_count": task.retry_count,
+            "user_id": task.data.get("user_id"),
+        }
+        result.append(task_info)
+
+    return result
