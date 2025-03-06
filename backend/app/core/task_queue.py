@@ -14,6 +14,9 @@ import shutil
 from app.core.ai_services import VideoProcessor
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.notification_service import NotificationService
+from app.services.task_service import TaskService
+from app.schemas.task import TaskCreate, TaskUpdate
+from app.models.task import Task as DBTask
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -63,11 +66,134 @@ class TaskQueue:
             cls._instance.retry_delays = settings.RETRY_DELAY
             cls._instance.history_cleanup_interval = 7 * 24 * 60 * 60  # 7天
             cls._instance.running = False
+            cls._instance.initialized = False
         return cls._instance
 
-    async def add_task(self, task: Task) -> str:
-        logger.info(f"添加任务到队列: ID={task.task_id}, 类型={task.task_type}")
+    async def initialize(self):
+        """初始化任务队列，从数据库加载任务"""
+        if self.initialized:
+            return
+
+        logger.info("初始化任务队列，从数据库加载任务")
+
+        try:
+            async with AsyncSessionLocal() as db:
+                # 加载未完成的任务
+                pending_tasks = await TaskService.get_tasks(
+                    db,
+                    status=f"{TaskStatus.PENDING},{TaskStatus.SCHEDULED},{TaskStatus.RUNNING},{TaskStatus.RETRYING}",
+                )
+
+                for db_task in pending_tasks:
+                    task = Task(
+                        task_id=db_task.id,
+                        task_type=db_task.task_type,
+                        data=db_task.data,
+                    )
+                    task.status = db_task.status
+                    task.progress = db_task.progress
+                    task.result = db_task.result
+                    task.error = db_task.error
+                    task.created_at = db_task.created_at
+                    task.updated_at = db_task.updated_at
+                    task.retry_count = db_task.retry_count
+                    task.max_retries = db_task.max_retries
+                    task.last_retry = db_task.last_retry_at
+                    task.schedule_time = db_task.scheduled_at
+
+                    self.tasks[task.task_id] = task
+
+                    # 如果是定时任务且时间未到，加入定时队列
+                    if (
+                        task.status == TaskStatus.SCHEDULED
+                        and task.schedule_time
+                        and task.schedule_time > datetime.now()
+                    ):
+                        heapq.heappush(
+                            self.scheduled_tasks,
+                            ScheduledTask(task.schedule_time, task),
+                        )
+                    # 否则加入普通队列
+                    elif task.status in [TaskStatus.PENDING, TaskStatus.RETRYING]:
+                        await self.queue.put(task)
+
+                logger.info(f"从数据库加载了 {len(pending_tasks)} 个未完成的任务")
+
+            self.initialized = True
+
+            # 启动任务处理循环
+            if not self.running:
+                logger.info("启动任务处理循环")
+                self.running = True
+                asyncio.create_task(self.process_tasks())
+                asyncio.create_task(self.process_scheduled_tasks())
+                asyncio.create_task(self.cleanup_old_tasks())
+
+        except Exception as e:
+            logger.error(f"初始化任务队列失败: {e}")
+
+    async def add_task(
+        self,
+        task_id: str = None,
+        task_type: str = None,
+        data: dict = None,
+        scheduled_at=None,
+        callback=None,
+    ) -> str:
+        """添加任务到队列"""
+        # 如果传入的是Task对象
+        if isinstance(task_id, Task):
+            task = task_id
+            logger.info(f"添加任务到队列: ID={task.task_id}, 类型={task.task_type}")
+        else:
+            # 创建新的Task对象
+            task = Task(task_id=task_id, task_type=task_type, data=data)
+            if scheduled_at:
+                task.schedule_time = scheduled_at
+            logger.info(f"添加任务到队列: ID={task.task_id}, 类型={task.task_type}")
+
+        # 确保已初始化
+        if not self.initialized:
+            await self.initialize()
+
         self.tasks[task.task_id] = task
+
+        # 保存到数据库
+        try:
+            async with AsyncSessionLocal() as db:
+                # 检查任务是否已存在
+                existing_task = await TaskService.get_task(db, task.task_id)
+                if existing_task:
+                    logger.info(f"任务已存在: ID={task.task_id}")
+                    # 更新任务
+                    task_update = TaskUpdate(
+                        status=task.status,
+                        progress=task.progress,
+                        result=task.result,
+                        error=task.error,
+                        retry_count=task.retry_count,
+                        scheduled_at=task.schedule_time,
+                    )
+                    await TaskService.update_task(db, task.task_id, task_update)
+                else:
+                    # 创建新任务
+                    task_create = TaskCreate(
+                        task_type=task.task_type,
+                        data=task.data,
+                        user_id=task.data.get("user_id"),
+                        scheduled_at=task.schedule_time,
+                        max_retries=task.max_retries,
+                    )
+                    db_task = await TaskService.create_task(db, task_create)
+                    # 更新任务ID
+                    if task.task_id != db_task.id:
+                        old_task_id = task.task_id
+                        task.task_id = db_task.id
+                        self.tasks[db_task.id] = task
+                        if old_task_id in self.tasks:
+                            del self.tasks[old_task_id]
+        except Exception as e:
+            logger.error(f"保存任务到数据库失败: {e}")
 
         if task.schedule_time and task.schedule_time > datetime.now():
             # 如果是定时任务且时间未到，加入定时队列
@@ -76,6 +202,14 @@ class TaskQueue:
             heapq.heappush(
                 self.scheduled_tasks, ScheduledTask(task.schedule_time, task)
             )
+
+            # 更新数据库中的任务状态
+            try:
+                async with AsyncSessionLocal() as db:
+                    task_update = TaskUpdate(status=TaskStatus.SCHEDULED)
+                    await TaskService.update_task(db, task.task_id, task_update)
+            except Exception as e:
+                logger.error(f"更新任务状态失败: {e}")
         else:
             # 否则直接加入普通队列
             logger.info(f"任务 {task.task_id} 已加入执行队列")
@@ -84,22 +218,19 @@ class TaskQueue:
         if not self.running:
             logger.info("启动任务处理循环")
             self.running = True
-            asyncio.create_task(self._process_queue())
+            asyncio.create_task(self.process_tasks())
+            asyncio.create_task(self.process_scheduled_tasks())
+            asyncio.create_task(self.cleanup_old_tasks())
 
         logger.info(f"任务添加完成: ID={task.task_id}")
         return task.task_id
 
-    async def _process_queue(self):
-        """
-        任务处理队列的入口点
-        这是 process_tasks 方法的别名，为了向后兼容
-        """
-        await self.process_tasks()
-
     def get_task(self, task_id: str) -> Optional[Task]:
+        """获取任务"""
         return self.tasks.get(task_id)
 
     def get_all_tasks(self) -> List[Task]:
+        """获取所有任务"""
         return list(self.tasks.values())
 
     def update_task_status(
@@ -139,6 +270,28 @@ class TaskQueue:
 
         task.updated_at = datetime.now()
 
+        # 更新数据库中的任务状态
+        try:
+            asyncio.create_task(self._update_task_in_db(task))
+        except Exception as e:
+            logger.error(f"更新任务状态到数据库失败: {e}")
+
+    async def _update_task_in_db(self, task: Task):
+        """更新数据库中的任务"""
+        try:
+            async with AsyncSessionLocal() as db:
+                task_update = TaskUpdate(
+                    status=task.status,
+                    progress=task.progress,
+                    result=task.result,
+                    error=task.error,
+                    retry_count=task.retry_count,
+                    scheduled_at=task.schedule_time,
+                )
+                await TaskService.update_task(db, task.task_id, task_update)
+        except Exception as e:
+            logger.error(f"更新任务到数据库失败: {e}")
+
     async def cleanup_old_tasks(self):
         """定期清理旧任务"""
         while True:
@@ -154,9 +307,11 @@ class TaskQueue:
                 for task_id in old_tasks:
                     del self.tasks[task_id]
 
-                logger.info(f"Cleaned up {len(old_tasks)} old tasks")
+                logger.info(f"清理了 {len(old_tasks)} 个旧任务")
+
+                # 注意：我们不从数据库中删除旧任务，以便保留历史记录
             except Exception as e:
-                logger.error(f"Error cleaning up old tasks: {e}")
+                logger.error(f"清理旧任务失败: {e}")
 
             await asyncio.sleep(self.history_cleanup_interval)
 
@@ -172,29 +327,26 @@ class TaskQueue:
                     and self.scheduled_tasks[0].schedule_time <= now
                 ):
                     scheduled_task = heapq.heappop(self.scheduled_tasks)
+                    task = scheduled_task.task
+
                     logger.info(
-                        f"Processing scheduled task {scheduled_task.task.task_id}"
+                        f"定时任务时间已到，加入执行队列: ID={task.task_id}, 计划时间={task.schedule_time}"
                     )
-                    await self.queue.put(scheduled_task.task)
-                    scheduled_task.task.status = TaskStatus.PENDING
+                    task.status = TaskStatus.PENDING
+                    await self.queue.put(task)
 
-                # 检查失败的任务是否需要重试
-                for task in self.tasks.values():
-                    if (
-                        task.status == TaskStatus.FAILED
-                        and task.retry_count < task.max_retries
-                    ):
-                        if task.last_retry:
-                            delay = self.retry_delays[
-                                min(task.retry_count, len(self.retry_delays) - 1)
-                            ]
-                            if (now - task.last_retry).total_seconds() >= delay:
-                                await self.retry_task(task)
-
+                    # 更新数据库中的任务状态
+                    try:
+                        async with AsyncSessionLocal() as db:
+                            task_update = TaskUpdate(status=TaskStatus.PENDING)
+                            await TaskService.update_task(db, task.task_id, task_update)
+                    except Exception as e:
+                        logger.error(f"更新任务状态失败: {e}")
             except Exception as e:
-                logger.error(f"Error in process_scheduled_tasks: {e}")
+                logger.error(f"处理定时任务失败: {e}")
 
-            await asyncio.sleep(1)  # 每秒检查一次
+            # 每秒检查一次
+            await asyncio.sleep(1)
 
     async def retry_task(self, task: Task):
         """重试任务"""
@@ -225,6 +377,19 @@ class TaskQueue:
                 f"您的{self._get_task_type_name(task.task_type)}任务 (ID: {task.task_id}) 在重试 {task.max_retries} 次后仍然失败。请检查任务详情了解更多信息。",
                 "failed",
             )
+
+            # 更新数据库中的任务状态
+            try:
+                async with AsyncSessionLocal() as db:
+                    task_update = TaskUpdate(
+                        status=TaskStatus.COMPLETED,
+                        error=task.error,
+                        retry_count=task.retry_count,
+                    )
+                    await TaskService.update_task(db, task.task_id, task_update)
+            except Exception as e:
+                logger.error(f"更新任务状态失败: {e}")
+
             return
 
         # 等待一段时间后重试
@@ -235,6 +400,18 @@ class TaskQueue:
         # 重新加入队列
         await self.queue.put(task)
         logger.info(f"任务已重新加入队列: ID={task.task_id}")
+
+        # 更新数据库中的任务状态
+        try:
+            async with AsyncSessionLocal() as db:
+                task_update = TaskUpdate(
+                    status=TaskStatus.RETRYING,
+                    retry_count=task.retry_count,
+                    error=f"任务失败，正在重试 ({task.retry_count}/{task.max_retries})",
+                )
+                await TaskService.update_task(db, task.task_id, task_update)
+        except Exception as e:
+            logger.error(f"更新任务状态失败: {e}")
 
     def _get_task_type_name(self, task_type: str) -> str:
         """获取任务类型的中文名称"""
@@ -247,9 +424,10 @@ class TaskQueue:
     async def process_tasks(self):
         """主任务处理循环"""
         logger.info("启动任务处理循环")
-        # 启动定时任务处理器和清理任务
-        asyncio.create_task(self.process_scheduled_tasks())
-        asyncio.create_task(self.cleanup_old_tasks())
+
+        # 确保已初始化
+        if not self.initialized:
+            await self.initialize()
 
         while True:
             logger.info("等待新任务...")
@@ -258,6 +436,14 @@ class TaskQueue:
             try:
                 task.status = TaskStatus.RUNNING
                 logger.info(f"开始处理任务: ID={task.task_id}")
+
+                # 更新数据库中的任务状态
+                try:
+                    async with AsyncSessionLocal() as db:
+                        task_update = TaskUpdate(status=TaskStatus.RUNNING)
+                        await TaskService.update_task(db, task.task_id, task_update)
+                except Exception as e:
+                    logger.error(f"更新任务状态失败: {e}")
 
                 if task.task_type == "douyin_post":
                     logger.info(f"处理抖音发布任务: ID={task.task_id}")
@@ -303,6 +489,20 @@ class TaskQueue:
                         f"您的任务 (ID: {task.task_id}) 因为未知的任务类型 {task.task_type} 而执行失败。",
                         "failed",
                     )
+
+                # 更新数据库中的任务状态
+                try:
+                    async with AsyncSessionLocal() as db:
+                        task_update = TaskUpdate(
+                            status=task.status,
+                            progress=task.progress,
+                            result=task.result,
+                            error=task.error,
+                        )
+                        await TaskService.update_task(db, task.task_id, task_update)
+                except Exception as e:
+                    logger.error(f"更新任务状态失败: {e}")
+
             except Exception as e:
                 logger.exception(f"处理任务时出错: ID={task.task_id}, 错误={str(e)}")
                 task.status = TaskStatus.FAILED
@@ -314,6 +514,16 @@ class TaskQueue:
                     f"您的任务 (ID: {task.task_id}) 执行过程中出现错误: {str(e)}。",
                     "failed",
                 )
+
+                # 更新数据库中的任务状态
+                try:
+                    async with AsyncSessionLocal() as db:
+                        task_update = TaskUpdate(
+                            status=TaskStatus.FAILED, error=task.error
+                        )
+                        await TaskService.update_task(db, task.task_id, task_update)
+                except Exception as e:
+                    logger.error(f"更新任务状态失败: {e}")
             finally:
                 self.queue.task_done()
                 logger.info(f"任务处理完成: ID={task.task_id}, 状态={task.status}")
@@ -380,12 +590,22 @@ class TaskQueue:
 
             # 获取任务参数
             original_path = task.data["original_path"]
-            processed_path = task.data["processed_path"]
+            # 生成处理后的视频路径，而不是从任务数据中获取
+            timestamp = int(datetime.now().timestamp())
+            filename = os.path.basename(original_path)
+            processed_filename = f"processed_{timestamp}_{filename}"
+            processed_path = os.path.join(
+                "uploads/processed_videos", processed_filename
+            )
+
+            # 确保目录存在
+            os.makedirs("uploads/processed_videos", exist_ok=True)
+
             text = task.data["text"]
             remove_subtitles = task.data.get("remove_subtitles", True)
             generate_subtitles = task.data.get("generate_subtitles", False)
             selected_area = task.data.get("selected_area")
-            auto_detect_subtitles = task.data.get("auto_detect_subtitles", False)
+            auto_detect_subtitles = task.data.get("auto_detect", False)
             user_id = task.data.get("user_id")  # 获取用户ID
 
             logger.info(
@@ -422,6 +642,34 @@ class TaskQueue:
             task.status = TaskStatus.COMPLETED
 
             if success:
+                # 生成缩略图
+                thumbnail_filename = f"thumbnail_{os.path.basename(processed_path).replace('.mp4', '.jpg')}"
+                thumbnail_path = os.path.join("static/previews", thumbnail_filename)
+
+                # 确保目录存在
+                os.makedirs("static/previews", exist_ok=True)
+
+                try:
+                    # 使用ffmpeg生成缩略图
+                    cmd = [
+                        "ffmpeg",
+                        "-i",
+                        processed_path,
+                        "-ss",
+                        "00:00:01",  # 从视频的第1秒截取
+                        "-vframes",
+                        "1",
+                        "-vf",
+                        "scale=320:-1",  # 缩放到宽度320，高度按比例
+                        thumbnail_path,
+                    ]
+                    subprocess.run(cmd, check=True)
+                    logger.info(f"缩略图生成成功: {thumbnail_path}")
+                except Exception as e:
+                    logger.error(f"生成缩略图失败: {str(e)}")
+                    # 如果缩略图生成失败，使用默认缩略图
+                    thumbnail_path = "static/default_preview.jpg"
+
                 # 生成视频URL和缩略图URL
                 video_filename = os.path.basename(processed_path)
                 video_url = f"/api/v1/douyin/processed-video/{task.task_id}"
@@ -432,6 +680,7 @@ class TaskQueue:
 
                 result = {
                     "processed_path": processed_path,
+                    "thumbnail_path": thumbnail_path,
                     "removed_subtitles": remove_subtitles,
                     "generated_subtitles": generate_subtitles,
                     "selected_area": selected_area,

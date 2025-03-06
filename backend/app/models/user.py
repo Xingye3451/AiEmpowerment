@@ -63,6 +63,7 @@ class User(Base):
     collected_videos = relationship(
         "CollectedVideo", back_populates="user", lazy="selectin"
     )
+    tasks = relationship("Task", back_populates="user", lazy="selectin")
 
     # 以下字段已弃用，保留是为了向后兼容
     douyin_accounts = Column(JSON, nullable=True)  # 已弃用，使用social_accounts替代

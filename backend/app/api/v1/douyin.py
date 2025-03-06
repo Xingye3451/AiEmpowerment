@@ -1,6 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Response
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    UploadFile,
+    File,
+    Form,
+    Response,
+    Request,
+)
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional, Dict
 import json
 import os
@@ -12,6 +22,8 @@ import subprocess
 import asyncio
 import logging
 from PIL import Image, ImageDraw, ImageFont
+import time
+from werkzeug.utils import secure_filename
 
 from app.core.deps import get_db, get_current_user
 from app.schemas.user import (
@@ -334,7 +346,6 @@ async def upload_video(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# 更新原有的batch_post路由以支持发布历史记录
 @router.post("/batch-post")
 async def batch_post_video(
     accounts: List[str] = Form(...),
@@ -342,74 +353,85 @@ async def batch_post_video(
     title: str = Form(...),
     description: str = Form(None),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
+    """
+    批量发布视频到抖音账号
+    - accounts: 抖音账号列表
+    - video_path: 视频文件路径
+    - title: 视频标题
+    - description: 视频描述
+    """
+    from app.services.task_service import TaskService
+    from app.schemas.task import TaskCreate
+
     if not os.path.exists(video_path):
         raise HTTPException(status_code=400, detail="视频文件不存在")
 
-    task_id = str(uuid.uuid4())
-    task = Task(
-        task_id=task_id,
-        task_type="douyin_post",
-        data={
-            "accounts": accounts,
-            "video_info": {
-                "path": video_path,
-                "title": title,
-                "description": description,
-            },
-            "user_id": current_user.id,
+    # 准备任务数据
+    task_data = {
+        "accounts": accounts,
+        "video_info": {
+            "path": video_path,
+            "title": title,
+            "description": description,
         },
+        "user_id": current_user.id,
+    }
+
+    # 创建任务
+    task_create = TaskCreate(
+        task_type="douyin_post", data=task_data, user_id=current_user.id, max_retries=3
     )
 
-    # 不再使用 douyin_history 字段，直接添加任务到队列
-    # history = current_user.douyin_history or []
-    # history.append(
-    #     {
-    #         "task_id": task_id,
-    #         "video_id": str(uuid.uuid4()),  # 临时视频ID
-    #         "title": title,
-    #         "description": description,
-    #         "accounts": accounts,
-    #         "success_count": 0,
-    #         "failed_count": 0,
-    #         "created_at": datetime.now().isoformat(),
-    #         "status": "pending",
-    #         "retries": 0,
-    #     }
-    # )
-    # current_user.douyin_history = history
-    # db.commit()
+    # 保存任务到数据库
+    task = await TaskService.create_task(db, task_create)
 
-    await task_queue.add_task(task)
+    # 添加任务到队列
+    await task_queue.add_task(
+        task_id=task.id, task_type="douyin_post", data=task_data, callback=None
+    )
 
-    return {"task_id": task_id, "message": "任务已添加到队列"}
+    return {"task_id": task.id, "message": "任务已添加到队列"}
 
 
 @router.get("/task/{task_id}")
-async def get_task_status(task_id: str, current_user: User = Depends(get_current_user)):
-    task = task_queue.get_task(task_id)
+async def get_task_status(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """获取任务状态"""
+    from app.services.task_service import TaskService
+
+    # 从数据库获取任务
+    task = await TaskService.get_task(db, task_id)
+
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
+    # 检查任务是否属于当前用户
+    if task.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权访问此任务")
+
     # 确定任务结果
     task_result = "unknown"
-    if task.status == TaskStatus.COMPLETED and not task.error:
+    if task.status == "completed" and not task.error:
         task_result = "success"
-    elif task.status == TaskStatus.FAILED or task.error:
+    elif task.status == "failed" or task.error:
         task_result = "failed"
 
     response = {
-        "task_id": task.task_id,
-        "type": task.task_type,  # 添加任务类型
+        "task_id": task.id,
+        "type": task.task_type,
         "status": task.status,
-        "result": task_result,  # 添加任务结果状态
+        "result": task_result,
         "progress": task.progress,
         "error": task.error,
-        "created_at": task.created_at,
-        "updated_at": task.updated_at,
-        "retry_count": task.retry_count,  # 添加重试次数
-        "data": task.data,  # 添加任务数据
+        "created_at": task.created_at.isoformat(),
+        "updated_at": task.updated_at.isoformat(),
+        "retry_count": task.retry_count,
+        "data": task.data,
     }
 
     # 如果有结果数据，添加到响应中
@@ -424,54 +446,46 @@ async def get_user_tasks(
     status: str = None,
     type: str = None,
     result: str = None,
+    skip: int = 0,
+    limit: int = 100,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     获取用户的任务列表
     - status: 任务状态过滤（pending, scheduled, running, completed）
     - type: 任务类型过滤（video_processing, douyin_post）
     - result: 任务结果过滤（success, failed）
+    - skip: 分页起始位置
+    - limit: 每页数量
     """
-    tasks = task_queue.get_all_tasks()
-    result = []
+    from app.services.task_service import TaskService
 
-    # 过滤任务
+    # 从数据库获取任务
+    tasks = await TaskService.get_tasks(
+        db,
+        user_id=current_user.id,
+        status=status,
+        task_type=type,
+        skip=skip,
+        limit=limit,
+    )
+
+    result_list = []
+
     for task in tasks:
-        # 检查任务是否属于当前用户
-        task_user_id = task.data.get("user_id")
-        if task_user_id != current_user.id:
-            continue
-
-        # 根据状态过滤
-        if status:
-            status_list = status.split(",")
-            if task.status not in status_list:
-                continue
-
-        # 根据类型过滤
-        if type and task.task_type != type:
-            continue
-
-        # 根据结果过滤
-        if result:
-            # 确定任务结果
-            task_result = "success"
-            if task.error or (
-                isinstance(task.result, dict) and task.result.get("error")
-            ):
-                task_result = "failed"
-
-            if task_result != result:
-                continue
-
         # 确定任务结果状态
         task_result = "success"
         if task.error or (isinstance(task.result, dict) and task.result.get("error")):
             task_result = "failed"
 
+        # 如果指定了结果过滤，且不匹配，则跳过
+        if result and task_result != result:
+            continue
+
         # 构建任务信息
         task_info = {
-            "task_id": task.task_id,
+            "task_id": task.id,
             "type": task.task_type,
             "status": task.status,
             "progress": task.progress,
@@ -483,7 +497,7 @@ async def get_user_tasks(
         }
 
         # 添加特定任务类型的信息
-        if task.task_type == "video_processing":
+        if task.task_type == "video_processing" and task.data:
             task_info.update(
                 {
                     "original_filename": os.path.basename(
@@ -496,20 +510,20 @@ async def get_user_tasks(
             )
 
             # 如果任务已完成，添加下载链接
-            if task.status == TaskStatus.COMPLETED and task.result:
+            if task.status == "completed" and task.result:
                 task_info.update(
                     {
-                        "download_url": f"/api/v1/douyin/processed-video/{task.task_id}",
-                        "thumbnail_url": f"/api/v1/douyin/processed-video-thumbnail/{task.task_id}",
+                        "download_url": f"/api/v1/douyin/processed-video/{task.id}",
+                        "thumbnail_url": f"/api/v1/douyin/processed-video-thumbnail/{task.id}",
                         "filename": os.path.basename(
                             task.result.get("processed_path", "")
                         ),
                     }
                 )
 
-        result.append(task_info)
+        result_list.append(task_info)
 
-    return result
+    return result_list
 
 
 @router.post("/groups")
@@ -589,31 +603,55 @@ async def get_accounts(current_user: User = Depends(get_current_user)):
 
 @router.post("/schedule")
 async def schedule_post(
-    schedule: ScheduledPost, current_user: User = Depends(get_current_user)
+    schedule: ScheduledPost,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
+    """
+    创建定时发布任务
+    - schedule: 定时发布任务信息
+    """
+    from app.services.task_service import TaskService
+    from app.schemas.task import TaskCreate
+
     if not os.path.exists(schedule.video_path):
         raise HTTPException(status_code=400, detail="视频文件不存在")
 
-    task_id = str(uuid.uuid4())
-    task = Task(
-        task_id=task_id,
-        task_type="douyin_post",
-        data={
-            "accounts": schedule.accounts,
-            "video_info": {
-                "path": schedule.video_path,
-                "title": schedule.title,
-                "description": schedule.description,
-            },
-            "user_id": current_user.id,
-            "schedule_time": schedule.schedule_time,
+    # 准备任务数据
+    task_data = {
+        "accounts": schedule.accounts,
+        "video_info": {
+            "path": schedule.video_path,
+            "title": schedule.title,
+            "description": schedule.description,
         },
+        "user_id": current_user.id,
+        "schedule_time": schedule.schedule_time,
+    }
+
+    # 创建任务
+    task_create = TaskCreate(
+        task_type="douyin_post",
+        data=task_data,
+        user_id=current_user.id,
+        max_retries=3,
+        scheduled_at=schedule.schedule_time,
     )
 
-    await task_queue.add_task(task)
+    # 保存任务到数据库
+    task = await TaskService.create_task(db, task_create)
+
+    # 添加任务到队列
+    await task_queue.add_task(
+        task_id=task.id,
+        task_type="douyin_post",
+        data=task_data,
+        scheduled_at=schedule.schedule_time,
+        callback=None,
+    )
 
     return {
-        "task_id": task_id,
+        "task_id": task.id,
         "message": "定时任务已创建",
         "schedule_time": schedule.schedule_time,
     }
@@ -642,37 +680,52 @@ async def get_post_history(current_user: User = Depends(get_current_user)):
 
 
 @router.get("/stats")
-async def get_stats(current_user: User = Depends(get_current_user)):
+async def get_stats(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """获取任务统计信息"""
-    # 获取所有任务
-    all_tasks = await get_user_tasks(current_user=current_user)
+    from app.services.task_service import TaskService
+
+    # 获取用户的所有任务
+    tasks = await TaskService.get_tasks(db, user_id=current_user.id, limit=1000)
 
     # 统计信息
-    total_tasks = len(all_tasks)
-    completed_tasks = sum(
-        1 for task in all_tasks if task.get("status") == TaskStatus.COMPLETED
-    )
-    failed_tasks = sum(
-        1 for task in all_tasks if task.get("status") == TaskStatus.FAILED
-    )
-    running_tasks = sum(
-        1 for task in all_tasks if task.get("status") == TaskStatus.RUNNING
-    )
+    total_tasks = len(tasks)
+    completed_tasks = sum(1 for task in tasks if task.status == "completed")
+    failed_tasks = sum(1 for task in tasks if task.status == "failed")
+    running_tasks = sum(1 for task in tasks if task.status == "running")
+    pending_tasks = sum(1 for task in tasks if task.status == "pending")
+    scheduled_tasks = sum(1 for task in tasks if task.status == "scheduled")
 
     # 按类型统计
     task_types = {}
-    for task in all_tasks:
-        task_type = task.get("type")
+    for task in tasks:
+        task_type = task.task_type
         if task_type not in task_types:
             task_types[task_type] = 0
         task_types[task_type] += 1
+
+    # 按结果统计
+    task_results = {"success": 0, "failed": 0, "unknown": 0}
+
+    for task in tasks:
+        if task.status == "completed" and not task.error:
+            task_results["success"] += 1
+        elif task.status == "failed" or task.error:
+            task_results["failed"] += 1
+        else:
+            task_results["unknown"] += 1
 
     return {
         "total_tasks": total_tasks,
         "completed_tasks": completed_tasks,
         "failed_tasks": failed_tasks,
         "running_tasks": running_tasks,
+        "pending_tasks": pending_tasks,
+        "scheduled_tasks": scheduled_tasks,
         "task_types": task_types,
+        "task_results": task_results,
     }
 
 
@@ -881,7 +934,21 @@ async def batch_process_videos(
     auto_detect_subtitles: bool = Form(False),  # 新增自动检测选项
     processing_mode: str = Form("cloud"),  # 新增处理模式参数，默认为云服务处理
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
+    """
+    批量处理视频文件
+    - videos: 视频文件列表
+    - text: 要添加的文本
+    - remove_subtitles: 是否移除原视频字幕
+    - generate_subtitles: 是否生成新字幕
+    - video_areas: 视频区域选择数据
+    - auto_detect_subtitles: 是否自动检测字幕
+    - processing_mode: 处理模式（cloud或local）
+    """
+    from app.services.task_service import TaskService
+    from app.schemas.task import TaskCreate
+
     try:
         processed_videos = []
         for i, video in enumerate(videos):
@@ -890,14 +957,14 @@ async def batch_process_videos(
             original_filename = f"{timestamp}_{video.filename}"
             original_path = os.path.join(UPLOAD_DIR, original_filename)
 
+            # 确保目录存在
+            os.makedirs(UPLOAD_DIR, exist_ok=True)
+            os.makedirs(PROCESSED_DIR, exist_ok=True)
+            os.makedirs(PREVIEW_DIR, exist_ok=True)
+
             with open(original_path, "wb+") as file_object:
                 content = await video.read()
                 file_object.write(content)
-
-            # 创建处理任务
-            task_id = str(uuid.uuid4())
-            processed_filename = f"processed_{original_filename}"
-            processed_path = os.path.join(PROCESSED_DIR, processed_filename)
 
             # 解析区域选择数据（如果提供）
             selected_area = None
@@ -907,34 +974,45 @@ async def batch_process_videos(
                 except json.JSONDecodeError:
                     logger.warning(f"无法解析视频 {original_filename} 的区域选择数据")
 
-            task = Task(
-                task_id=task_id,
+            # 准备任务数据
+            task_data = {
+                "original_path": original_path,
+                "text": text,
+                "remove_subtitles": remove_subtitles,
+                "generate_subtitles": generate_subtitles,
+                "selected_area": selected_area,
+                "auto_detect": auto_detect_subtitles,
+                "processing_mode": processing_mode,
+                "user_id": current_user.id,
+            }
+
+            # 创建任务
+            task_create = TaskCreate(
                 task_type="video_processing",
-                data={
-                    "original_path": original_path,
-                    "processed_path": processed_path,
-                    "text": text,
-                    "remove_subtitles": remove_subtitles,
-                    "generate_subtitles": generate_subtitles,
-                    "selected_area": selected_area,
-                    "auto_detect": auto_detect_subtitles,
-                    "processing_mode": processing_mode,  # 添加处理模式到任务数据中
-                    "user_id": current_user.id,  # 将 user_id 移到 data 字典中
-                },
+                data=task_data,
+                user_id=current_user.id,
+                max_retries=3,
             )
 
             # 保存任务到数据库
+            task = await TaskService.create_task(db, task_create)
             logger.info(
-                f"创建任务: ID={task_id}, 类型={task.task_type}, 用户ID={current_user.id}"
+                f"创建任务: ID={task.id}, 类型={task.task_type}, 用户ID={current_user.id}"
             )
-            await task_queue.add_task(task)
-            logger.info(f"任务已添加到队列: ID={task_id}")
+
+            # 添加任务到队列
+            await task_queue.add_task(
+                task_id=task.id,
+                task_type="video_processing",
+                data=task_data,
+                callback=None,
+            )
+            logger.info(f"任务已添加到队列: ID={task.id}")
 
             processed_videos.append(
                 {
-                    "task_id": task_id,
+                    "task_id": task.id,
                     "original_filename": original_filename,
-                    "processed_filename": processed_filename,
                 }
             )
 
@@ -946,38 +1024,40 @@ async def batch_process_videos(
 
 @router.get("/process-status/{task_id}")
 async def get_process_status(
-    task_id: str, current_user: User = Depends(get_current_user)
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """获取任务处理状态的详细信息"""
-    task = task_queue.get_task(task_id)
+    from app.services.task_service import TaskService
+
+    # 从数据库获取任务
+    task = await TaskService.get_task(db, task_id)
+
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
+    # 检查任务是否属于当前用户
+    if task.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权访问此任务")
+
     # 确定任务结果
     task_result = "unknown"
-    if task.status == TaskStatus.COMPLETED and not task.error:
+    if task.status == "completed" and not task.error:
         task_result = "success"
-    elif task.status == TaskStatus.FAILED or task.error:
+    elif task.status == "failed" or task.error:
         task_result = "failed"
 
     response = {
-        "task_id": task.task_id,
-        "type": task.task_type,  # 添加任务类型
+        "task_id": task.id,
+        "type": task.task_type,
         "status": task.status,
-        "result": task_result,  # 添加任务结果状态
+        "result": task_result,
         "progress": task.progress,
         "error": task.error,
-        "created_at": (
-            task.created_at.isoformat()
-            if hasattr(task.created_at, "isoformat")
-            else task.created_at
-        ),
-        "updated_at": (
-            task.updated_at.isoformat()
-            if hasattr(task.updated_at, "isoformat")
-            else task.updated_at
-        ),
-        "retry_count": task.retry_count,  # 添加重试次数
+        "created_at": task.created_at.isoformat(),
+        "updated_at": task.updated_at.isoformat(),
+        "retry_count": task.retry_count,
     }
 
     # 添加任务数据的安全副本（排除敏感信息）
@@ -999,88 +1079,86 @@ async def get_process_status(
 
 @router.get("/processed-video/{task_id}")
 async def get_processed_video(
-    task_id: str, current_user: User = Depends(get_current_user)
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    """获取处理后的视频文件，用于下载"""
-    task = task_queue.get_task(task_id)
+    """获取处理后的视频文件"""
+    from app.services.task_service import TaskService
+
+    # 从数据库获取任务
+    task = await TaskService.get_task(db, task_id)
+
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    if task.status != TaskStatus.COMPLETED:
+    # 检查任务是否属于当前用户
+    if task.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权访问此任务")
+
+    # 检查任务是否已完成
+    if task.status != "completed":
         raise HTTPException(status_code=400, detail="任务尚未完成")
 
+    # 检查任务类型
+    if task.task_type != "video_processing":
+        raise HTTPException(status_code=400, detail="任务类型错误")
+
+    # 检查结果是否存在
     if not task.result or "processed_path" not in task.result:
-        raise HTTPException(status_code=404, detail="处理结果不存在")
+        raise HTTPException(status_code=400, detail="处理结果不存在")
 
-    processed_path = task.result["processed_path"]
-    if not os.path.exists(processed_path):
-        raise HTTPException(status_code=404, detail="视频文件不存在")
-
-    filename = os.path.basename(processed_path)
+    file_path = task.result.get("processed_path")
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="文件不存在")
 
     return FileResponse(
-        path=processed_path,
-        filename=filename,
+        file_path,
         media_type="video/mp4",
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
+        filename=os.path.basename(file_path),
     )
 
 
 @router.get("/processed-video-thumbnail/{task_id}")
 async def get_processed_video_thumbnail(
-    task_id: str, current_user: User = Depends(get_current_user)
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    """获取处理后视频的缩略图"""
-    task = task_queue.get_task(task_id)
+    """获取处理后的视频缩略图"""
+    from app.services.task_service import TaskService
+
+    # 从数据库获取任务
+    task = await TaskService.get_task(db, task_id)
+
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    if task.status != TaskStatus.COMPLETED:
+    # 检查任务是否属于当前用户
+    if task.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权访问此任务")
+
+    # 检查任务是否已完成
+    if task.status != "completed":
         raise HTTPException(status_code=400, detail="任务尚未完成")
 
-    if not task.result or "processed_path" not in task.result:
-        raise HTTPException(status_code=404, detail="处理结果不存在")
+    # 检查任务类型
+    if task.task_type != "video_processing":
+        raise HTTPException(status_code=400, detail="任务类型错误")
 
-    processed_path = task.result["processed_path"]
-    if not os.path.exists(processed_path):
-        raise HTTPException(status_code=404, detail="视频文件不存在")
+    # 检查结果是否存在
+    if not task.result or "thumbnail_path" not in task.result:
+        raise HTTPException(status_code=400, detail="缩略图不存在")
 
-    # 生成缩略图文件名
-    thumbnail_filename = (
-        f"thumbnail_{os.path.basename(processed_path).replace('.mp4', '.jpg')}"
+    file_path = task.result.get("thumbnail_path")
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    return FileResponse(
+        file_path,
+        media_type="image/jpeg",
+        filename=os.path.basename(file_path),
     )
-    thumbnail_path = os.path.join(PREVIEW_DIR, thumbnail_filename)
-
-    # 如果缩略图不存在，则生成
-    if not os.path.exists(thumbnail_path):
-        try:
-            # 使用ffmpeg生成缩略图
-            cmd = [
-                "ffmpeg",
-                "-i",
-                processed_path,
-                "-ss",
-                "00:00:01",  # 从视频的第1秒截取
-                "-vframes",
-                "1",
-                "-vf",
-                "scale=320:-1",  # 缩放到宽度320，高度按比例
-                thumbnail_path,
-            ]
-            subprocess.run(cmd, check=True)
-        except Exception as e:
-            logger.error(f"生成缩略图失败: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"生成缩略图失败: {str(e)}")
-
-    # 设置响应头
-    headers = {
-        "Cache-Control": "public, max-age=3600",
-        "Content-Disposition": f'inline; filename="{thumbnail_filename}"',
-        "Content-Type": "image/jpeg",
-    }
-
-    # 返回缩略图
-    return FileResponse(path=thumbnail_path, media_type="image/jpeg", headers=headers)
 
 
 @router.get("/check-local-processing", response_model=Dict[str, bool])
@@ -1117,28 +1195,110 @@ async def upload_video_with_preview(
 
 
 @router.get("/debug/tasks")
-async def debug_tasks(current_user: User = Depends(get_current_user)):
+async def debug_tasks(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """
     调试端点，用于查看所有任务的状态
     """
+    from app.services.task_service import TaskService
+
     if not current_user.is_superuser:
         raise HTTPException(status_code=403, detail="只有管理员可以访问此端点")
 
-    tasks = task_queue.get_all_tasks()
+    # 从数据库获取所有任务
+    tasks = await TaskService.get_tasks(db, limit=1000)
     result = []
 
     for task in tasks:
         task_info = {
-            "task_id": task.task_id,
+            "task_id": task.id,
             "type": task.task_type,
             "status": task.status,
             "progress": task.progress,
-            "created_at": task.created_at,
-            "updated_at": task.updated_at,
+            "created_at": task.created_at.isoformat(),
+            "updated_at": task.updated_at.isoformat(),
             "error": task.error,
             "retry_count": task.retry_count,
-            "user_id": task.data.get("user_id"),
+            "user_id": task.user_id,
         }
         result.append(task_info)
 
     return result
+
+
+@router.post("/process-video")
+async def process_video(
+    request: Request,
+    file: UploadFile = File(...),
+    text: str = Form(""),
+    remove_subtitles: bool = Form(False),
+    generate_subtitles: bool = Form(False),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    处理视频文件
+    - file: 视频文件
+    - text: 要添加的文本
+    - remove_subtitles: 是否移除原视频字幕
+    - generate_subtitles: 是否生成新字幕
+    """
+    from app.services.task_service import TaskService
+    from app.schemas.task import TaskCreate
+
+    # 检查文件类型
+    if not file.filename.lower().endswith((".mp4", ".mov", ".avi", ".mkv")):
+        raise HTTPException(
+            status_code=400,
+            detail="不支持的文件类型，请上传MP4、MOV、AVI或MKV格式的视频",
+        )
+
+    # 保存上传的文件
+    original_filename = file.filename
+    safe_filename = secure_filename(original_filename)
+    timestamp = int(time.time())
+    unique_filename = f"{timestamp}_{safe_filename}"
+    file_path = os.path.join(UPLOAD_DIR, unique_filename)
+
+    # 确保目录存在
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    os.makedirs(PROCESSED_DIR, exist_ok=True)
+    os.makedirs(PREVIEW_DIR, exist_ok=True)
+
+    # 写入文件
+    with open(file_path, "wb") as f:
+        content = await file.read()
+        f.write(content)
+
+    # 准备任务数据
+    task_data = {
+        "original_path": file_path,
+        "text": text,
+        "remove_subtitles": remove_subtitles,
+        "generate_subtitles": generate_subtitles,
+        "user_id": current_user.id,
+    }
+
+    # 创建任务
+    task_create = TaskCreate(
+        task_type="video_processing",
+        data=task_data,
+        user_id=current_user.id,
+        max_retries=3,
+    )
+
+    # 保存任务到数据库
+    task = await TaskService.create_task(db, task_create)
+
+    # 添加任务到队列
+    await task_queue.add_task(
+        task_id=task.id, task_type="video_processing", data=task_data, callback=None
+    )
+
+    return {
+        "task_id": task.id,
+        "status": task.status,
+        "message": "视频处理任务已创建",
+    }

@@ -9,8 +9,10 @@ import os
 from app.api.api import api_router
 from app.core.config import settings
 from app.core.scheduler import init_scheduler, shutdown_scheduler
+from app.core.task_queue import TaskQueue
 from app.db.database import engine
 from app.db.init_db import init_db, ensure_db_exists
+from app.db.migrations.run_migrations import run_all_migrations
 from app.db.base_class import Base
 from fastapi import status
 from fastapi.exceptions import RequestValidationError, HTTPException
@@ -121,12 +123,22 @@ async def startup_event():
     logger.info("应用启动")
     # 初始化数据库
     await init_db()
+    # 运行数据库迁移
+    await run_all_migrations()
     # 初始化调度器
     init_scheduler()
+
+    # 初始化任务队列
+    task_queue = TaskQueue()
+    await task_queue.initialize()
+    logger.info("任务队列已初始化")
 
     # 确保静态文件目录存在
     os.makedirs("static/previews", exist_ok=True)
     os.makedirs("static/videos", exist_ok=True)
+    os.makedirs("uploads/videos", exist_ok=True)
+    os.makedirs("uploads/processed_videos", exist_ok=True)
+    logger.info("静态文件和上传目录已创建")
 
     # 挂载静态文件目录
     try:

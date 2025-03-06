@@ -12,12 +12,21 @@ from app.db.database import Base, engine, AsyncSession
 from app.core.config import settings
 from app.core.security import get_password_hash
 from app.models.user import User
+from app.models.task import Task
 from app.models.social_account import (
     SocialAccount,
     AccountGroup,
     SocialPost,
     DistributionTask,
     account_group_association,
+)
+from app.models.notification import Notification
+from app.models.comfyui import ComfyUIWorkflow
+from app.models.scheduled_task import ScheduledTask
+from app.models.content_collection import (
+    CollectionTask,
+    CollectedContent,
+    CollectedVideo,
 )
 
 
@@ -83,6 +92,61 @@ async def init_social_account_tables():
         print("Social account tables created successfully.")
 
 
+async def init_task_tables():
+    """初始化任务相关的数据库表"""
+    async with engine.begin() as conn:
+        # 创建任务相关表
+        await conn.run_sync(
+            Base.metadata.create_all,
+            tables=[
+                Task.__table__,
+                ScheduledTask.__table__,
+                CollectionTask.__table__,
+            ],
+        )
+        print("Task tables created successfully.")
+
+
+async def init_notification_tables():
+    """初始化通知相关的数据库表"""
+    async with engine.begin() as conn:
+        # 创建通知相关表
+        await conn.run_sync(
+            Base.metadata.create_all,
+            tables=[
+                Notification.__table__,
+            ],
+        )
+        print("Notification tables created successfully.")
+
+
+async def init_content_collection_tables():
+    """初始化内容收集相关的数据库表"""
+    async with engine.begin() as conn:
+        # 创建内容收集相关表
+        await conn.run_sync(
+            Base.metadata.create_all,
+            tables=[
+                CollectedContent.__table__,
+                CollectedVideo.__table__,
+            ],
+        )
+        print("Content collection tables created successfully.")
+
+
+async def init_comfyui_tables():
+    """初始化ComfyUI相关的数据库表"""
+    async with engine.begin() as conn:
+        # 创建ComfyUI相关表
+        await conn.run_sync(
+            Base.metadata.create_all,
+            tables=[
+                ComfyUIWorkflow.__table__,
+            ],
+        )
+        print("ComfyUI tables created successfully.")
+
+
 async def init_all():
     """执行所有初始化步骤"""
     # 1. 确保数据库文件存在
@@ -96,6 +160,18 @@ async def init_all():
 
     # 4. 初始化社交账号相关表
     await init_social_account_tables()
+
+    # 5. 初始化任务相关表
+    await init_task_tables()
+
+    # 6. 初始化通知相关表
+    await init_notification_tables()
+
+    # 7. 初始化内容收集相关表
+    await init_content_collection_tables()
+
+    # 8. 初始化ComfyUI相关表
+    await init_comfyui_tables()
 
     print("Database initialization completed.")
 

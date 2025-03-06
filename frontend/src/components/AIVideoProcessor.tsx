@@ -34,7 +34,9 @@ import {
   Radio,
   FormControl,
   FormLabel,
-  Switch
+  Switch,
+  Chip,
+  LinearProgress
 } from '@mui/material';
 import { 
   CloudUpload as CloudUploadIcon,
@@ -46,7 +48,12 @@ import {
   NavigateBefore as NavigateBeforeIcon,
   Close as CloseIcon,
   Cloud as CloudIcon,
-  Computer as ComputerIcon
+  Computer as ComputerIcon,
+  Download as DownloadIcon,
+  Visibility as VisibilityIcon,
+  Info as InfoIcon,
+  PlayArrow as RunningIcon,
+  Pending as PendingIcon
 } from '@mui/icons-material';
 import axios from 'axios';
 import { DOUYIN_API } from '../config/api';
@@ -58,6 +65,12 @@ interface ProcessingTask {
   processed_filename: string;
   status?: string;
   progress?: number;
+  result?: string | {
+    video_url?: string;
+    thumbnail_url?: string;
+    filename?: string;
+  };
+  error?: string;
 }
 
 interface VideoPreview {
@@ -983,33 +996,143 @@ const AIVideoProcessor: React.FC = () => {
                       transition: 'transform 0.2s',
                       '&:hover': {
                         transform: 'translateX(8px)'
-                      }
+                      },
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      padding: 2
                     }}
                   >
-                    <ListItemText
-                      primary={task.original_filename}
-                      secondary={
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          {task.status === 'completed' ? (
-                            <CheckCircleIcon sx={{ color: theme.palette.success.main }} />
-                          ) : task.status === 'failed' ? (
-                            <ErrorIcon sx={{ color: theme.palette.error.main }} />
-                          ) : (
-                            <CircularProgress
-                              variant="determinate"
-                              value={task.progress || 0}
-                              size={20}
-                              sx={{ color: theme.palette.primary.main }}
-                            />
-                          )}
-                          <Typography variant="body2" color="text.secondary">
-                            {task.status === 'completed' ? '处理完成' : 
-                             task.status === 'failed' ? '处理失败' :
-                             `处理中 ${task.progress}%`}
-                          </Typography>
-                        </Box>
-                      }
-                    />
+                    <Box sx={{ display: 'flex', width: '100%', justifyContent: 'space-between', mb: 1 }}>
+                      <Typography variant="subtitle1" fontWeight="medium">
+                        {task.original_filename}
+                      </Typography>
+                      <Box>
+                        <Chip
+                          size="small"
+                          label={
+                            task.status === 'completed' 
+                              ? (task.result === 'failed' || task.result === 'error' ? '处理失败' : '处理完成') 
+                              : task.status === 'running' 
+                                ? '处理中' 
+                                : task.status === 'pending' 
+                                  ? '等待中'
+                                  : task.status === 'scheduled'
+                                    ? '已调度'
+                                    : task.status
+                          }
+                          color={
+                            task.status === 'completed' 
+                              ? (task.result === 'failed' || task.result === 'error' ? 'error' : 'success')
+                              : task.status === 'running'
+                                ? 'primary'
+                                : 'default'
+                          }
+                          icon={
+                            task.status === 'completed' 
+                              ? (task.result === 'failed' || task.result === 'error' ? <ErrorIcon /> : <CheckCircleIcon />)
+                              : task.status === 'running'
+                                ? <RunningIcon />
+                                : task.status === 'pending'
+                                  ? <PendingIcon />
+                                  : <InfoIcon />
+                          }
+                        />
+                      </Box>
+                    </Box>
+                    
+                    {/* 进度条 */}
+                    <Box sx={{ width: '100%', mb: 1 }}>
+                      <LinearProgress 
+                        variant="determinate" 
+                        value={task.progress || 0}
+                        sx={{
+                          height: 8,
+                          borderRadius: 4,
+                          bgcolor: 'rgba(0, 0, 0, 0.05)',
+                          '& .MuiLinearProgress-bar': {
+                            borderRadius: 4,
+                            bgcolor: task.status === 'completed' 
+                              ? (task.result === 'failed' || task.result === 'error' ? theme.palette.error.main : theme.palette.success.main)
+                              : theme.palette.primary.main
+                          }
+                        }}
+                      />
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                        进度: {task.progress || 0}%
+                      </Typography>
+                    </Box>
+                    
+                    {/* 任务ID */}
+                    <Typography variant="caption" color="text.secondary">
+                      任务ID: {task.task_id}
+                    </Typography>
+                    
+                    {/* 错误信息 */}
+                    {task.error && (
+                      <Alert severity="error" sx={{ mt: 1, width: '100%' }}>
+                        {task.error}
+                      </Alert>
+                    )}
+                    
+                    {/* 任务结果 */}
+                    {task.status === 'completed' && task.result && typeof task.result === 'object' && (
+                      <Box sx={{ mt: 1, width: '100%' }}>
+                        {task.result.video_url && (
+                          <Button
+                            variant="outlined"
+                            size="small"
+                            startIcon={<DownloadIcon />}
+                            onClick={() => {
+                              const token = localStorage.getItem('token');
+                              if (!token || !task.result || typeof task.result !== 'object' || !task.result.video_url) return;
+                              
+                              // 使用fetch API下载视频
+                              fetch(task.result.video_url, {
+                                headers: {
+                                  'Authorization': `Bearer ${token}`
+                                }
+                              })
+                                .then(response => response.blob())
+                                .then(blob => {
+                                  const url = window.URL.createObjectURL(blob);
+                                  const a = document.createElement('a');
+                                  a.style.display = 'none';
+                                  a.href = url;
+                                  a.download = task.result && typeof task.result === 'object' && task.result.filename 
+                                    ? task.result.filename 
+                                    : `processed_video_${task.task_id}.mp4`;
+                                  document.body.appendChild(a);
+                                  a.click();
+                                  window.URL.revokeObjectURL(url);
+                                  document.body.removeChild(a);
+                                })
+                                .catch(err => {
+                                  console.error('下载视频失败:', err);
+                                });
+                            }}
+                            sx={{ mr: 1 }}
+                          >
+                            下载处理后的视频
+                          </Button>
+                        )}
+                        
+                        {task.result.thumbnail_url && (
+                          <Button
+                            variant="text"
+                            size="small"
+                            startIcon={<VisibilityIcon />}
+                            onClick={() => {
+                              // 在新窗口中打开缩略图
+                              if (task.result && typeof task.result === 'object' && task.result.thumbnail_url) {
+                                window.open(task.result.thumbnail_url, '_blank');
+                              }
+                            }}
+                          >
+                            查看预览
+                          </Button>
+                        )}
+                      </Box>
+                    )}
                   </ListItem>
                 </Fade>
               ))}
