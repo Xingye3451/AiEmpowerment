@@ -19,6 +19,7 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 import { API_BASE_URL } from '../config';
+import { SOCIAL_ACCOUNT_API } from '../config/api';
 
 // 定义接口
 interface SocialAccount {
@@ -128,13 +129,13 @@ const SocialAccountManager: React.FC = () => {
   const fetchAccounts = async () => {
     setLoading(true);
     try {
-      const response = await axios.get(`${API_BASE_URL}/social/accounts`, {
+      const response = await axios.get(SOCIAL_ACCOUNT_API.LIST, {
         withCredentials: true
       });
       setAccounts(response.data);
-    } catch (err) {
+    } catch (error) {
+      console.error('获取账号列表失败:', error);
       setError('获取账号列表失败');
-      console.error(err);
     } finally {
       setLoading(false);
     }
@@ -142,29 +143,27 @@ const SocialAccountManager: React.FC = () => {
   
   // 获取分组列表
   const fetchGroups = async () => {
-    setLoading(true);
     try {
-      const response = await axios.get(`${API_BASE_URL}/social/groups`, {
+      const response = await axios.get(SOCIAL_ACCOUNT_API.GROUPS, {
         withCredentials: true
       });
       setGroups(response.data);
-    } catch (err) {
+    } catch (error) {
+      console.error('获取分组列表失败:', error);
       setError('获取分组列表失败');
-      console.error(err);
-    } finally {
-      setLoading(false);
     }
   };
   
   // 获取支持的平台列表
   const fetchPlatforms = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/social/platforms`, {
+      const response = await axios.get(SOCIAL_ACCOUNT_API.PLATFORMS, {
         withCredentials: true
       });
       setPlatforms(response.data.platforms);
-    } catch (err) {
-      console.error(err);
+    } catch (error) {
+      console.error('获取平台列表失败:', error);
+      setError('获取平台列表失败');
     }
   };
   
@@ -275,7 +274,7 @@ const SocialAccountManager: React.FC = () => {
   const submitAccountForm = async () => {
     setLoading(true);
     try {
-      await axios.post(`${API_BASE_URL}/social/accounts`, accountFormData, {
+      await axios.post(SOCIAL_ACCOUNT_API.LIST, accountFormData, {
         withCredentials: true
       });
       setSuccess('账号添加成功');
@@ -295,13 +294,13 @@ const SocialAccountManager: React.FC = () => {
     try {
       if (editingGroupId) {
         // 编辑现有分组
-        await axios.put(`${API_BASE_URL}/social/groups/${editingGroupId}`, groupFormData, {
+        await axios.put(SOCIAL_ACCOUNT_API.GROUP_DETAIL(String(editingGroupId)), groupFormData, {
           withCredentials: true
         });
         setSuccess('分组更新成功');
       } else {
         // 添加新分组
-        await axios.post(`${API_BASE_URL}/social/groups`, groupFormData, {
+        await axios.post(SOCIAL_ACCOUNT_API.GROUPS, groupFormData, {
           withCredentials: true
         });
         setSuccess('分组添加成功');
@@ -322,7 +321,7 @@ const SocialAccountManager: React.FC = () => {
     
     setLoading(true);
     try {
-      await axios.delete(`${API_BASE_URL}/social/accounts/${accountId}`, {
+      await axios.delete(SOCIAL_ACCOUNT_API.DELETE(String(accountId)), {
         withCredentials: true
       });
       setSuccess('账号删除成功');
@@ -341,7 +340,7 @@ const SocialAccountManager: React.FC = () => {
     
     setLoading(true);
     try {
-      await axios.delete(`${API_BASE_URL}/social/groups/${groupId}`, {
+      await axios.delete(SOCIAL_ACCOUNT_API.GROUP_DETAIL(String(groupId)), {
         withCredentials: true
       });
       setSuccess('分组删除成功');
@@ -358,7 +357,7 @@ const SocialAccountManager: React.FC = () => {
   const submitBatchLogin = async () => {
     setLoginInProgress(true);
     try {
-      const response = await axios.post(`${API_BASE_URL}/social/batch-login`, {
+      const response = await axios.post(SOCIAL_ACCOUNT_API.BATCH_LOGIN, {
         accounts: batchLoginAccounts
       }, {
         withCredentials: true

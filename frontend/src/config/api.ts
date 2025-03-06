@@ -54,6 +54,8 @@ export const SOCIAL_ACCOUNT_API = {
     STATUS: (accountId: string) => `${BASE_URL}/social/accounts/${accountId}/status`,
     GROUPS: `${BASE_URL}/social/account-groups`,
     GROUP_DETAIL: (groupId: string) => `${BASE_URL}/social/account-groups/${groupId}`,
+    PLATFORMS: `${BASE_URL}/social/platforms`,
+    BATCH_LOGIN: `${BASE_URL}/social/batch-login`,
 };
 
 // 任务管理API路径配置
@@ -70,7 +72,7 @@ export const TASK_API = {
 
 // Douyin API 路径配置
 export const DOUYIN_API = {
-    UPLOAD_VIDEO: `${BASE_URL}/douyin/upload-video`,
+    UPLOAD_VIDEO: `${BASE_URL}/douyin/upload-video-with-preview`,
     PREVIEW: (filename: string) => `${BASE_URL}/douyin/preview/${filename}`,
     VIDEO: (filename: string) => `${BASE_URL}/douyin/video/${filename}`,
     BATCH_LOGIN: `${BASE_URL}/douyin/batch-login`,

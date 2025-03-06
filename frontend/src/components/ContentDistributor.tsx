@@ -50,7 +50,7 @@ import axios from 'axios';
 import VideoPreview from './VideoPreview';
 import SchedulePost from './SchedulePost';
 import PublishStats from './PublishStats';
-import { DISTRIBUTE_API, SOCIAL_ACCOUNT_API, TASK_API } from '../config/api';
+import { DISTRIBUTE_API, SOCIAL_ACCOUNT_API, TASK_API, DOUYIN_API } from '../config/api';
 import { API_BASE_URL } from '../config';
 
 interface VideoInfo {
@@ -233,7 +233,7 @@ const ContentDistributor: React.FC = () => {
   // 获取支持的平台列表
   const fetchPlatforms = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/social/platforms`, {
+      const response = await axios.get(SOCIAL_ACCOUNT_API.PLATFORMS, {
         withCredentials: true
       });
       setPlatforms(response.data.platforms);
@@ -327,7 +327,7 @@ const ContentDistributor: React.FC = () => {
     }
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/douyin/upload`, formData, {
+      const response = await axios.post(DOUYIN_API.UPLOAD_VIDEO, formData, {
         withCredentials: true,
         onUploadProgress: (progressEvent) => {
           const percentCompleted = Math.round(

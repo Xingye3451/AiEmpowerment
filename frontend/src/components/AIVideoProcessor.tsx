@@ -94,48 +94,124 @@ const AIVideoProcessor: React.FC = () => {
   const [processingMode, setProcessingMode] = useState<'cloud' | 'local'>('cloud');
   const [localProcessingAvailable, setLocalProcessingAvailable] = useState<boolean>(false);
 
-  const adjustCanvasSize = () => {
-    if (canvasRef.current && imgRef.current && imgRef.current.complete) {
-      const imgWidth = imgRef.current.naturalWidth;
-      const imgHeight = imgRef.current.naturalHeight;
-      
-      canvasRef.current.width = imgWidth;
-      canvasRef.current.height = imgHeight;
-      
-      console.log(`调整canvas尺寸: ${imgWidth}x${imgHeight}`);
-      
-      drawSelectedArea();
+  // 辅助函数：构建完整URL
+  const buildFullUrl = (url: string): string => {
+    if (url.startsWith('http') || url.startsWith('data:')) {
+      return url; // 已经是完整URL或者是data URL
     }
+    
+    // 如果是相对路径，添加基础URL
+    // 强制使用后端服务器地址
+    const baseUrl = 'http://localhost:8000';
+    return url.startsWith('/') ? `${baseUrl}${url}` : `${baseUrl}/${url}`;
+  };
+
+  // 从视频文件生成预览图
+  const generatePreviewFromVideo = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      try {
+        // 创建视频元素
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        
+        // 创建对象URL
+        const objectUrl = URL.createObjectURL(file);
+        video.src = objectUrl;
+        
+        // 视频加载完成后生成预览图
+        video.onloadedmetadata = () => {
+          // 设置视频时间到1秒处
+          video.currentTime = 1;
+          
+          // 当视频跳转到指定时间后生成预览图
+          video.onseeked = () => {
+            // 创建canvas
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            
+            // 绘制视频帧
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+              
+              // 转换为base64
+              const dataUrl = canvas.toDataURL('image/jpeg');
+              
+              // 释放资源
+              URL.revokeObjectURL(objectUrl);
+              
+              resolve(dataUrl);
+            } else {
+              reject(new Error('无法获取canvas上下文'));
+            }
+          };
+          
+          // 处理视频跳转失败
+          video.onerror = () => {
+            URL.revokeObjectURL(objectUrl);
+            reject(new Error('视频跳转失败'));
+          };
+        };
+        
+        // 处理视频加载失败
+        video.onerror = () => {
+          URL.revokeObjectURL(objectUrl);
+          reject(new Error('视频加载失败'));
+        };
+      } catch (error) {
+        reject(error);
+      }
+    });
+  };
+
+  const adjustCanvasSize = () => {
+    if (!canvasRef.current || !imgRef.current) return;
+    
+    canvasRef.current.width = imgRef.current.offsetWidth;
+    canvasRef.current.height = imgRef.current.offsetHeight;
+    
+    // 如果当前预览已有选区，则绘制它
+    drawSelectedArea();
   };
 
   const drawSelectedArea = () => {
-    if (!canvasRef.current || !videoPreviews.length || currentPreviewIndex >= videoPreviews.length) return;
+    if (!canvasRef.current) return;
     
     const ctx = canvasRef.current.getContext('2d');
     if (!ctx) return;
-
+    
+    // 清除画布
     ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
     
-    const currentPreview = videoPreviews[currentPreviewIndex];
-    if (currentPreview.selectedArea) {
-      const { x, y, width, height } = currentPreview.selectedArea;
-      
+    // 获取当前预览的选区
+    const selectedArea = videoPreviews[currentPreviewIndex]?.selectedArea;
+    
+    if (selectedArea) {
       ctx.strokeStyle = 'red';
       ctx.lineWidth = 2;
-      ctx.strokeRect(x, y, width, height);
+      ctx.strokeRect(
+        selectedArea.x, 
+        selectedArea.y, 
+        selectedArea.width, 
+        selectedArea.height
+      );
       
       ctx.fillStyle = 'rgba(255, 0, 0, 0.2)';
-      ctx.fillRect(x, y, width, height);
-      
-      console.log(`绘制选区 - 视频${currentPreviewIndex + 1}:`, { x, y, width, height });
+      ctx.fillRect(
+        selectedArea.x, 
+        selectedArea.y, 
+        selectedArea.width, 
+        selectedArea.height
+      );
     }
   };
 
   useEffect(() => {
     if (imgRef.current) {
       const handleImageLoad = () => {
-        console.log(`图片加载完成 - 视频${currentPreviewIndex + 1}`);
         adjustCanvasSize();
+        imgRef.current?.removeEventListener('load', handleImageLoad);
       };
 
       if (imgRef.current.complete) {
@@ -150,6 +226,102 @@ const AIVideoProcessor: React.FC = () => {
       }
     }
   }, [currentPreviewIndex, videoPreviews]);
+
+  useEffect(() => {
+    if (isAreaSelectionOpen && videoPreviews.length > 0) {
+      // 确保图片加载后调整画布大小
+      if (imgRef.current) {
+        if (imgRef.current.complete) {
+          adjustCanvasSize();
+        } else {
+          const handleImageLoad = () => {
+            adjustCanvasSize();
+            imgRef.current?.removeEventListener('load', handleImageLoad);
+          };
+          
+          const handleImageError = (e: Event) => {
+            // 获取当前图片URL
+            const currentUrl = imgRef.current?.src || '';
+            
+            // 如果当前URL已经是默认预览图，则不再尝试加载
+            if (currentUrl.includes('default_preview.jpg')) {
+              // 创建一个简单的内联预览图
+              try {
+                const canvas = document.createElement('canvas');
+                canvas.width = 480;
+                canvas.height = 270;
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                  // 绘制灰色背景
+                  ctx.fillStyle = '#f0f0f0';
+                  ctx.fillRect(0, 0, canvas.width, canvas.height);
+                  
+                  // 绘制文字
+                  ctx.fillStyle = '#808080';
+                  ctx.font = '16px Arial';
+                  ctx.textAlign = 'center';
+                  ctx.textBaseline = 'middle';
+                  ctx.fillText('预览图加载失败', canvas.width / 2, canvas.height / 2);
+                  
+                  // 转换为data URL
+                  const dataUrl = canvas.toDataURL('image/jpeg');
+                  
+                  if (imgRef.current) {
+                    imgRef.current.src = dataUrl;
+                  }
+                  
+                  // 更新预览数组
+                  setVideoPreviews(prev => {
+                    const newPreviews = [...prev];
+                    if (newPreviews[currentPreviewIndex]) {
+                      newPreviews[currentPreviewIndex] = {
+                        ...newPreviews[currentPreviewIndex],
+                        previewUrl: dataUrl
+                      };
+                    }
+                    return newPreviews;
+                  });
+                }
+              } catch (error) {
+                console.error('创建内联预览图失败:', error);
+              }
+              
+              return;
+            }
+            
+            // 使用默认预览图
+            const defaultPreviewUrl = buildFullUrl('/static/previews/default_preview.jpg');
+            
+            if (imgRef.current) {
+              imgRef.current.src = defaultPreviewUrl;
+            }
+            
+            // 更新预览数组
+            setVideoPreviews(prev => {
+              const newPreviews = [...prev];
+              if (newPreviews[currentPreviewIndex]) {
+                newPreviews[currentPreviewIndex] = {
+                  ...newPreviews[currentPreviewIndex],
+                  previewUrl: defaultPreviewUrl
+                };
+              }
+              return newPreviews;
+            });
+            
+            imgRef.current?.removeEventListener('error', handleImageError);
+          };
+          
+          imgRef.current.addEventListener('load', handleImageLoad);
+          imgRef.current.addEventListener('error', handleImageError);
+          
+          return () => {
+            imgRef.current?.removeEventListener('load', handleImageLoad);
+            imgRef.current?.removeEventListener('error', handleImageError);
+          };
+        }
+      }
+    }
+  }, [currentPreviewIndex, videoPreviews, isAreaSelectionOpen]);
 
   const generateVideoPreviews = async (files: FileList) => {
     try {
@@ -170,7 +342,7 @@ const AIVideoProcessor: React.FC = () => {
         try {
           const file = files[i];
           const formData = new FormData();
-          formData.append('video', file);
+          formData.append('file', file);
           formData.append('title', file.name);
           
           const uploadResponse = await axios.post(DOUYIN_API.UPLOAD_VIDEO, formData, {
@@ -187,23 +359,78 @@ const AIVideoProcessor: React.FC = () => {
             }
           });
 
-          if (uploadResponse.data.success) {
-            const previewUrl = uploadResponse.data.preview_url;
-            const videoUrl = uploadResponse.data.video_url;
+          if (uploadResponse.data) {
+            // 检查后端返回的数据中是否包含预览图和视频URL
+            const hasPreviewUrl = 'preview_url' in uploadResponse.data;
+            const hasVideoUrl = 'video_url' in uploadResponse.data;
+            const hasSuccess = 'success' in uploadResponse.data;
             
-            console.log(`视频 ${i + 1}/${totalFiles} 上传成功:`, {
-              previewUrl,
-              videoUrl,
-              fileName: file.name
-            });
+            // 如果响应中包含success字段且为false，则表示上传失败
+            if (hasSuccess && !uploadResponse.data.success) {
+              throw new Error(`视频 ${file.name} 上传失败: ${uploadResponse.data.detail || '未知错误'}`);
+            }
+            
+            // 直接使用后端返回的URL
+            let previewUrl = uploadResponse.data.preview_url;
+            let videoUrl = uploadResponse.data.video_url;
+            
+            // 如果后端没有返回预览图URL，则根据文件名构造一个
+            if (!previewUrl) {
+              // 从文件路径中提取文件名
+              const filePath = uploadResponse.data.saved_path || uploadResponse.data.file_path || '';
+              const fileName = filePath.split('/').pop() || file.name;
+              const fileNameWithoutExt = fileName.split('.')[0];
+              
+              // 构造预览图URL
+              previewUrl = `/static/previews/${fileNameWithoutExt}.jpg`;
+            }
+            
+            // 如果后端没有返回视频URL，则根据文件名构造一个
+            if (!videoUrl) {
+              // 从文件路径中提取文件名
+              const filePath = uploadResponse.data.saved_path || uploadResponse.data.file_path || '';
+              const fileName = filePath.split('/').pop() || file.name;
+              
+              // 构造视频URL
+              videoUrl = `/static/videos/${fileName}`;
+            }
+            
+            // 确保URL是完整的
+            previewUrl = buildFullUrl(previewUrl);
+            videoUrl = buildFullUrl(videoUrl);
+            
+            // 验证预览图URL是否有效
+            try {
+              const previewResponse = await fetch(previewUrl, { method: 'HEAD' });
+              
+              if (!previewResponse.ok) {
+                // 尝试生成本地预览图
+                try {
+                  const localPreviewUrl = await generatePreviewFromVideo(file);
+                  previewUrl = localPreviewUrl;
+                } catch (previewError) {
+                  // 使用默认预览图
+                  previewUrl = buildFullUrl('/static/previews/default_preview.jpg');
+                }
+              }
+            } catch (error) {
+              // 尝试生成本地预览图
+              try {
+                const localPreviewUrl = await generatePreviewFromVideo(file);
+                previewUrl = localPreviewUrl;
+              } catch (previewError) {
+                // 使用默认预览图
+                previewUrl = buildFullUrl('/static/previews/default_preview.jpg');
+              }
+            }
             
             previews.push({ 
               file, 
               previewUrl: previewUrl,
-              uploadPath: uploadResponse.data.file_path
+              uploadPath: uploadResponse.data.saved_path || uploadResponse.data.file_path || ''
             });
           } else {
-            throw new Error(`视频 ${file.name} 上传失败: ${uploadResponse.data.detail || '未知错误'}`);
+            throw new Error(`视频 ${file.name} 上传失败: 服务器响应格式不正确`);
           }
         } catch (error: any) {
           console.error(`视频 ${files[i].name} 上传失败:`, error);
@@ -219,10 +446,9 @@ const AIVideoProcessor: React.FC = () => {
       setVideoPreviews(previews);
       
       if (previews.length > 0) {
-        setTimeout(() => {
-          setIsAreaSelectionOpen(true);
-          setIsUploading(false);
-        }, 1000);
+        setIsAreaSelectionOpen(true);
+        setCurrentPreviewIndex(0);
+        setIsUploading(false);
       } else {
         setIsUploading(false);
       }
@@ -431,6 +657,12 @@ const AIVideoProcessor: React.FC = () => {
     
     checkLocalProcessingAvailability();
   }, []);
+
+  // 监控区域选择对话框状态
+  useEffect(() => {
+    console.log('isAreaSelectionOpen状态变化:', isAreaSelectionOpen);
+    console.log('videoPreviews状态:', videoPreviews);
+  }, [isAreaSelectionOpen, videoPreviews]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -759,6 +991,10 @@ const AIVideoProcessor: React.FC = () => {
             overflow: 'hidden'
           }
         }}
+        onClose={() => {
+          console.log('对话框关闭事件触发');
+          setIsAreaSelectionOpen(false);
+        }}
       >
         <DialogTitle sx={{ 
           bgcolor: theme.palette.primary.main, 
@@ -773,7 +1009,10 @@ const AIVideoProcessor: React.FC = () => {
           <IconButton
             edge="end"
             color="inherit"
-            onClick={() => setIsAreaSelectionOpen(false)}
+            onClick={() => {
+              console.log('关闭按钮点击');
+              setIsAreaSelectionOpen(false);
+            }}
             aria-label="close"
           >
             <CloseIcon />
@@ -785,42 +1024,179 @@ const AIVideoProcessor: React.FC = () => {
             width: '100%', 
             height: '100%',
             display: 'flex',
+            flexDirection: 'column',
             justifyContent: 'center',
             alignItems: 'center',
             bgcolor: '#000',
-            overflow: 'hidden'
+            overflow: 'hidden',
+            padding: '20px'
           }}>
-            {videoPreviews.length > 0 && (
+            {videoPreviews.length > 0 ? (
               <>
-                <img
-                  ref={imgRef}
-                  src={videoPreviews[currentPreviewIndex]?.previewUrl}
-                  alt={`视频预览 ${currentPreviewIndex + 1}`}
-                  style={{ 
-                    maxWidth: '100%', 
-                    maxHeight: '70vh',
-                    display: 'block',
-                    objectFit: 'contain'
-                  }}
-                  onLoad={adjustCanvasSize}
-                />
-                <canvas
-                  ref={canvasRef}
-                  onMouseDown={handleCanvasMouseDown}
-                  onMouseMove={handleCanvasMouseMove}
-                  onMouseUp={handleCanvasMouseUp}
-                  style={{
-                    position: 'absolute',
-                    top: '50%',
-                    left: '50%',
-                    transform: 'translate(-50%, -50%)',
-                    cursor: 'crosshair',
-                    width: imgRef.current?.offsetWidth || '100%',
-                    height: imgRef.current?.offsetHeight || '100%',
-                    pointerEvents: 'auto'
-                  }}
-                />
+                <Typography color="white" sx={{ mb: 2 }}>
+                  请在预览图上框选需要移除字幕的区域
+                </Typography>
+                
+                {videoPreviews[currentPreviewIndex]?.previewUrl ? (
+                  <>
+                    <Box sx={{ position: 'relative', width: '100%', textAlign: 'center' }}>
+                      <img
+                        ref={imgRef}
+                        src={videoPreviews[currentPreviewIndex]?.previewUrl}
+                        alt={`视频预览 ${currentPreviewIndex + 1}`}
+                        style={{ 
+                          maxWidth: '100%', 
+                          maxHeight: '60vh',
+                          display: 'block',
+                          margin: '0 auto',
+                          objectFit: 'contain'
+                        }}
+                        onLoad={(e) => {
+                          adjustCanvasSize();
+                        }}
+                        onError={(e) => {
+                          // 获取当前图片URL
+                          const currentUrl = imgRef.current?.src || '';
+                          
+                          // 如果当前URL已经是默认预览图，则不再尝试加载
+                          if (currentUrl.includes('default_preview.jpg')) {
+                            // 创建一个简单的内联预览图
+                            try {
+                              const canvas = document.createElement('canvas');
+                              canvas.width = 480;
+                              canvas.height = 270;
+                              const ctx = canvas.getContext('2d');
+                              if (ctx) {
+                                // 绘制灰色背景
+                                ctx.fillStyle = '#f0f0f0';
+                                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                                
+                                // 绘制文字
+                                ctx.fillStyle = '#808080';
+                                ctx.font = '16px Arial';
+                                ctx.textAlign = 'center';
+                                ctx.textBaseline = 'middle';
+                                ctx.fillText('预览图加载失败', canvas.width / 2, canvas.height / 2);
+                                
+                                // 转换为data URL
+                                const dataUrl = canvas.toDataURL('image/jpeg');
+                                
+                                if (imgRef.current) {
+                                  imgRef.current.src = dataUrl;
+                                }
+                                
+                                // 更新预览数组
+                                setVideoPreviews(prev => {
+                                  const newPreviews = [...prev];
+                                  if (newPreviews[currentPreviewIndex]) {
+                                    newPreviews[currentPreviewIndex] = {
+                                      ...newPreviews[currentPreviewIndex],
+                                      previewUrl: dataUrl
+                                    };
+                                  }
+                                  return newPreviews;
+                                });
+                              }
+                            } catch (error) {
+                              console.error('创建内联预览图失败:', error);
+                            }
+                            
+                            return;
+                          }
+                          
+                          // 使用默认预览图
+                          const defaultPreviewUrl = buildFullUrl('/static/previews/default_preview.jpg');
+                          
+                          if (imgRef.current) {
+                            imgRef.current.src = defaultPreviewUrl;
+                          }
+                          
+                          // 更新预览数组
+                          setVideoPreviews(prev => {
+                            const newPreviews = [...prev];
+                            if (newPreviews[currentPreviewIndex]) {
+                              newPreviews[currentPreviewIndex] = {
+                                ...newPreviews[currentPreviewIndex],
+                                previewUrl: defaultPreviewUrl
+                              };
+                            }
+                            return newPreviews;
+                          });
+                        }}
+                      />
+                      <canvas
+                        ref={canvasRef}
+                        onMouseDown={handleCanvasMouseDown}
+                        onMouseMove={handleCanvasMouseMove}
+                        onMouseUp={handleCanvasMouseUp}
+                        style={{
+                          position: 'absolute',
+                          top: '0',
+                          left: '50%',
+                          transform: 'translateX(-50%)',
+                          cursor: 'crosshair',
+                          width: imgRef.current?.offsetWidth || '100%',
+                          height: imgRef.current?.offsetHeight || '100%',
+                          pointerEvents: 'auto'
+                        }}
+                      />
+                      
+                      {/* 刷新预览图按钮 */}
+                      <Button
+                        variant="contained"
+                        color="primary"
+                        size="small"
+                        sx={{ 
+                          position: 'absolute', 
+                          top: 10, 
+                          right: 10,
+                          opacity: 0.8,
+                          '&:hover': {
+                            opacity: 1
+                          }
+                        }}
+                        onClick={() => {
+                          if (imgRef.current) {
+                            // 构造一个带有时间戳的URL，强制刷新
+                            const currentUrl = videoPreviews[currentPreviewIndex]?.previewUrl;
+                            const refreshUrl = currentUrl.includes('?') 
+                              ? `${currentUrl}&t=${Date.now()}` 
+                              : `${currentUrl}?t=${Date.now()}`;
+                            
+                            console.log('刷新预览图:', refreshUrl);
+                            
+                            // 更新预览数组
+                            setVideoPreviews(prev => {
+                              const updated = [...prev];
+                              if (updated[currentPreviewIndex]) {
+                                updated[currentPreviewIndex] = {
+                                  ...updated[currentPreviewIndex],
+                                  previewUrl: refreshUrl
+                                };
+                              }
+                              return updated;
+                            });
+                            
+                            // 直接设置图片源
+                            imgRef.current.src = refreshUrl;
+                          }
+                        }}
+                      >
+                        刷新预览
+                      </Button>
+                    </Box>
+                    <Typography color="white" sx={{ mt: 2 }}>
+                      提示：如果预览图不清晰，您仍可以大致框选字幕区域
+                    </Typography>
+                  </>
+                ) : (
+                  <Typography color="error">
+                    预览图加载失败，请重试
+                  </Typography>
+                )}
               </>
+            ) : (
+              <Typography color="white">没有可用的预览图</Typography>
             )}
           </Box>
         </DialogContent>

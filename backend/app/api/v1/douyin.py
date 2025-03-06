@@ -11,6 +11,7 @@ from pathlib import Path
 import subprocess
 import asyncio
 import logging
+from PIL import Image, ImageDraw, ImageFont
 
 from app.core.deps import get_db, get_current_user
 from app.schemas.user import (
@@ -86,51 +87,91 @@ async def batch_login_douyin(
     return BatchDouyinLoginResponse(results=results)
 
 
+@router.post("/upload")
+async def upload_video_alias(
+    file: UploadFile = File(...),
+    title: str = Form(...),
+    description: str = Form(None),
+    current_user: User = Depends(get_current_user),
+):
+    """上传视频的别名路由，重定向到/upload-video路由"""
+    # 直接调用upload_video函数
+    return await upload_video(file, title, description, current_user)
+
+
 @router.post("/upload-video")
 async def upload_video(
-    video: UploadFile = File(...),
+    file: UploadFile = File(...),
     title: str = Form(...),
     description: str = Form(None),
     current_user: User = Depends(get_current_user),
 ):
     try:
-        logger.info(f"处理视频上传: {video.filename}, 用户: {current_user.username}")
+        # 添加关键请求日志
+        logger.info(
+            f"接收到视频上传请求: 用户={current_user.username}, 文件={file.filename}"
+        )
+
+        # 检查视频文件是否为空
+        content = await file.read()
+        file_size = len(content)
+
+        # 重置文件指针，以便后续再次读取
+        await file.seek(0)
+
+        if file_size == 0:
+            logger.error("上传的视频文件为空")
+            raise HTTPException(status_code=422, detail="上传的视频文件为空")
 
         # 生成时间戳文件名
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        original_filename = f"{timestamp}_{video.filename}"
+        original_filename = f"{timestamp}_{file.filename}"
         file_path = os.path.join(UPLOAD_DIR, original_filename)
-        static_video_path = os.path.join("static/videos", original_filename)
+
+        # 确定静态文件路径
+        # 获取项目根目录
+        project_root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        )
+
+        # 静态文件目录应该在项目根目录下
+        static_dir = os.path.join(project_root, "static")
+        static_videos_dir = os.path.join(static_dir, "videos")
+        static_previews_dir = os.path.join(static_dir, "previews")
+
+        # 确保静态目录存在
+        os.makedirs(static_videos_dir, exist_ok=True)
+        os.makedirs(static_previews_dir, exist_ok=True)
+
+        static_video_path = os.path.join(static_videos_dir, original_filename)
 
         # 确保目录存在
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
-        os.makedirs(os.path.dirname(static_video_path), exist_ok=True)
-        os.makedirs(PREVIEW_DIR, exist_ok=True)
-
-        logger.info(f"保存视频到: {file_path}")
 
         # 保存上传的视频文件
         try:
-            content = await video.read()
+            # 文件内容已经在前面读取过了，不需要再次读取
             with open(file_path, "wb+") as file_object:
                 file_object.write(content)
-            logger.info(f"视频文件保存成功: {file_path}, 大小: {len(content)} 字节")
+            logger.info(f"视频文件保存成功: {file_path}")
         except Exception as e:
             logger.error(f"保存视频文件失败: {str(e)}")
             raise HTTPException(status_code=500, detail=f"保存视频文件失败: {str(e)}")
 
         # 创建预览图
         preview_filename = f"{os.path.splitext(original_filename)[0]}.jpg"
-        preview_path = os.path.join(PREVIEW_DIR, preview_filename)
-        logger.info(f"将生成预览图: {preview_path}")
+        preview_path = os.path.join(static_previews_dir, preview_filename)
 
+        # 确保预览图目录存在
+        os.makedirs(os.path.dirname(preview_path), exist_ok=True)
+
+        # 尝试使用ffmpeg生成预览图
         try:
             # 检查是否安装了ffmpeg
             try:
                 ffmpeg_path = (
                     subprocess.check_output(["which", "ffmpeg"]).decode().strip()
                 )
-                logger.info(f"找到ffmpeg路径: {ffmpeg_path}")
             except subprocess.CalledProcessError:
                 # 如果找不到ffmpeg，尝试使用常见的安装路径
                 common_paths = [
@@ -142,7 +183,6 @@ async def upload_video(
                 for path in common_paths:
                     if os.path.exists(path):
                         ffmpeg_path = path
-                        logger.info(f"使用备选ffmpeg路径: {ffmpeg_path}")
                         break
 
                 if not ffmpeg_path:
@@ -162,57 +202,109 @@ async def upload_video(
                 "1",
                 "-vf",
                 "scale=480:-1",
+                "-y",  # 覆盖已存在的文件
                 preview_path,
             ]
-            logger.info(f"执行ffmpeg命令: {' '.join(cmd)}")
-            process = subprocess.run(cmd, check=True, capture_output=True, text=True)
+
+            # 使用subprocess.run而不是subprocess.check_output，以便获取更详细的错误信息
+            process = subprocess.run(cmd, capture_output=True, text=True)
 
             if process.returncode != 0:
-                logger.error(f"生成预览图失败: {process.stderr}")
-                raise HTTPException(
-                    status_code=500, detail=f"生成预览图失败: {process.stderr}"
-                )
+                logger.error(f"生成预览图失败，返回码: {process.returncode}")
+
+                # 尝试使用不同的参数重新生成
+                alt_cmd = [
+                    ffmpeg_path,
+                    "-i",
+                    file_path,
+                    "-ss",
+                    "00:00:00.5",  # 使用不同的时间点
+                    "-vframes",
+                    "1",
+                    "-y",  # 覆盖已存在的文件
+                    preview_path,
+                ]
+
+                alt_process = subprocess.run(alt_cmd, capture_output=True, text=True)
+
+                if alt_process.returncode != 0:
+                    logger.error(f"备选命令也失败，返回码: {alt_process.returncode}")
+                    # 使用默认预览图
+                    use_default_preview = True
+                else:
+                    use_default_preview = False
+            else:
+                use_default_preview = False
 
             # 检查预览图是否成功生成
             if not os.path.exists(preview_path) or os.path.getsize(preview_path) == 0:
                 logger.error(f"预览图生成失败或为空: {preview_path}")
-                raise HTTPException(
-                    status_code=500, detail="预览图生成失败，请检查视频格式"
-                )
+                use_default_preview = True
+            else:
+                logger.info(f"预览图生成成功: {preview_path}")
+                use_default_preview = False
 
-            logger.info(
-                f"预览图生成成功: {preview_path}, 大小: {os.path.getsize(preview_path)} 字节"
-            )
-
-        except subprocess.CalledProcessError as e:
-            logger.error(f"执行ffmpeg命令失败: {e.stderr}")
-            raise HTTPException(status_code=500, detail=f"生成预览图失败: {e.stderr}")
         except Exception as e:
             logger.error(f"生成预览图时发生错误: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"生成预览图失败: {str(e)}")
+            # 使用默认预览图
+            use_default_preview = True
 
-        # 复制文件到静态目录而不是创建软链接
+        # 复制文件到静态目录
         try:
             import shutil
 
+            # 复制文件
             shutil.copy2(file_path, static_video_path)
-            logger.info(f"视频文件已复制到静态目录: {static_video_path}")
+
+            # 验证文件是否成功复制
+            if not os.path.exists(static_video_path):
+                logger.error(f"复制后文件不存在: {static_video_path}")
+
         except Exception as e:
             logger.error(f"复制文件到静态目录失败: {str(e)}")
             raise HTTPException(
                 status_code=500, detail=f"复制文件到静态目录失败: {str(e)}"
             )
 
+        # 如果需要使用默认预览图
+        if use_default_preview:
+            try:
+                default_preview = os.path.join(
+                    project_root,
+                    "static",
+                    "default_preview.jpg",
+                )
+                if os.path.exists(default_preview):
+                    import shutil
+
+                    # 确保目标目录存在
+                    os.makedirs(os.path.dirname(preview_path), exist_ok=True)
+                    # 复制默认预览图
+                    shutil.copy2(default_preview, preview_path)
+                    logger.info(f"已使用默认预览图")
+                else:
+                    logger.error(f"默认预览图不存在: {default_preview}")
+                    # 创建一个简单的默认图片
+                    try:
+                        from PIL import Image, ImageDraw
+
+                        img = Image.new("RGB", (480, 270), color=(240, 240, 240))
+                        d = ImageDraw.Draw(img)
+                        d.text(
+                            (240, 135),
+                            "预览图生成失败",
+                            fill=(128, 128, 128),
+                        )
+                        img.save(preview_path)
+                        logger.info(f"已创建简单的默认预览图")
+                    except Exception as e:
+                        logger.error(f"创建简单的默认预览图失败: {str(e)}")
+            except Exception as e:
+                logger.error(f"使用默认预览图失败: {str(e)}")
+
         preview_url = f"/static/previews/{preview_filename}"
         video_url = f"/static/videos/{original_filename}"
-        logger.info(f"上传成功，预览URL: {preview_url}, 视频URL: {video_url}")
-
-        # 检查预览图是否存在
-        if not os.path.exists(os.path.join(PREVIEW_DIR, preview_filename)):
-            logger.error(f"预览图文件不存在: {preview_path}")
-            raise HTTPException(
-                status_code=500, detail="预览图生成失败，请检查服务器日志"
-            )
+        logger.info(f"上传成功，预览URL: {preview_url}")
 
         # 检查视频文件是否存在
         if not os.path.exists(static_video_path):
@@ -221,17 +313,19 @@ async def upload_video(
                 status_code=500, detail="视频文件复制失败，请检查服务器日志"
             )
 
-        # 获取服务器基础URL
-        base_url = "http://localhost:8000"  # 默认本地开发环境
-
-        return {
+        # 确保返回正确的字段
+        response_data = {
             "success": True,
             "file_path": file_path,
-            "preview_url": f"{base_url}{preview_url}",
-            "video_url": f"{base_url}{video_url}",
+            "saved_path": file_path,  # 添加saved_path字段
+            "preview_url": preview_url,
+            "video_url": video_url,
             "title": title,
             "description": description,
+            "filename": os.path.basename(file_path),  # 添加filename字段
         }
+
+        return response_data
 
     except HTTPException:
         raise
@@ -706,11 +800,8 @@ async def batch_process_videos(
                     "selected_area": selected_area,
                     "auto_detect": auto_detect_subtitles,
                     "processing_mode": processing_mode,  # 添加处理模式到任务数据中
+                    "user_id": current_user.id,  # 将 user_id 移到 data 字典中
                 },
-                status=TaskStatus.PENDING,
-                progress=0,
-                result={},
-                user_id=current_user.id,
             )
 
             # 保存任务到数据库
@@ -836,3 +927,25 @@ async def check_local_processing(current_user: User = Depends(get_current_user))
     """
     # TODO: 实现检查本地GPU和依赖是否可用的逻辑
     return {"available": False}
+
+
+@router.post("/upload-video-v1")
+async def upload_video_v1(
+    file: UploadFile = File(...),
+    title: str = Form(...),
+    description: str = Form(None),
+    current_user: User = Depends(get_current_user),
+):
+    """上传视频的v1版本路由"""
+    return await upload_video(file, title, description, current_user)
+
+
+@router.post("/upload-video-with-preview")
+async def upload_video_with_preview(
+    file: UploadFile = File(...),
+    title: str = Form(...),
+    description: str = Form(None),
+    current_user: User = Depends(get_current_user),
+):
+    """上传视频并生成预览图的专用路由"""
+    return await upload_video(file, title, description, current_user)

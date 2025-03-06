@@ -177,22 +177,28 @@ async def update_user(
     }
 
 
+@router.get("/check-role", response_model=Dict[str, str])
+async def check_admin_role(current_user: User = Depends(get_current_admin)):
+    """
+    检查当前用户是否为管理员
+    """
+    return {"role": current_user.role}
+
+
 @router.put("/change-password", response_model=Dict[str, str])
 async def change_admin_password(
     password_data: dict,
     db: AsyncSession = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
 ):
-    """管理员修改自己的密码"""
-    old_password = password_data.get("old_password")
-    new_password = password_data.get("new_password")
+    """修改管理员密码"""
+    # 验证当前密码
+    if not verify_password(
+        password_data.get("current_password"), current_admin.hashed_password
+    ):
+        raise HTTPException(status_code=400, detail="当前密码不正确")
 
-    if not old_password or not new_password:
-        raise HTTPException(status_code=400, detail="旧密码和新密码都不能为空")
-
-    if not verify_password(old_password, current_admin.hashed_password):
-        raise HTTPException(status_code=400, detail="旧密码不正确")
-
-    current_admin.hashed_password = get_password_hash(new_password)
+    # 更新密码
+    current_admin.hashed_password = get_password_hash(password_data.get("new_password"))
     await db.commit()
-    return {"msg": "密码修改成功"}
+    return {"message": "密码修改成功"}

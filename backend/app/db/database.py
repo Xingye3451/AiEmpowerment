@@ -17,7 +17,7 @@ if settings.DB_TYPE.lower() == "sqlite":
 # 异步引擎和会话
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=True,
+    echo=False,
     # 对于MySQL，我们不需要特殊的connect_args
     # 对于SQLite，aiomysql不使用check_same_thread参数
 )
@@ -26,6 +26,7 @@ AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=F
 # 同步引擎和会话（用于某些同步操作）
 sync_engine = create_engine(
     settings.SYNC_DATABASE_URL,
+    echo=False,
     connect_args=connect_args if settings.DB_TYPE.lower() == "sqlite" else {},
 )
 SessionLocal = sessionmaker(bind=sync_engine, expire_on_commit=False)

@@ -26,7 +26,30 @@ force_exit_timer = None
 # 强制退出函数
 def force_exit():
     print("\n服务器关闭超时，强制退出...")
-    os._exit(0)  # 使用os._exit强制退出，不执行清理操作
+    # 确保所有线程都被终止
+    import os
+    import sys
+    import signal
+    import time
+
+    # 在Unix/Linux/Mac系统上，尝试发送SIGKILL信号
+    if sys.platform != "win32":
+        try:
+            # 在容器环境中，使用SIGTERM可能更合适
+            pid = os.getpid()
+            print(f"发送SIGTERM信号到进程 {pid}")
+            os.kill(pid, signal.SIGTERM)
+            # 给一点时间处理SIGTERM
+            time.sleep(0.5)
+            # 如果进程还在运行，使用SIGKILL
+            print(f"发送SIGKILL信号到进程 {pid}")
+            os.kill(pid, signal.SIGKILL)
+        except Exception as e:
+            print(f"发送信号失败: {e}")
+
+    # 如果上面的方法失败，使用os._exit强制退出
+    print("使用os._exit强制退出")
+    os._exit(1)  # 使用非零退出码表示异常退出
 
 
 # 在Windows环境下设置控制台处理程序
@@ -42,6 +65,8 @@ if sys.platform == "win32":
         @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_ulong)
         def console_ctrl_handler(event):
             global server_should_exit, force_exit_timer
+            import threading  # 在函数内部导入threading模块
+
             if event in (CTRL_C_EVENT, CTRL_BREAK_EVENT):
                 if not server_should_exit:
                     print("\n检测到Ctrl+C，正在优雅地关闭服务器...")
@@ -49,12 +74,14 @@ if sys.platform == "win32":
 
                     # 设置强制退出计时器
                     if force_exit_timer is None:
-                        force_exit_timer = threading.Timer(5.0, force_exit)
+                        force_exit_timer = threading.Timer(
+                            3.0, force_exit
+                        )  # 减少等待时间
                         force_exit_timer.daemon = True
                         force_exit_timer.start()
 
-                    # 如果10秒后仍未退出，则强制退出
-                    threading.Timer(10.0, lambda: os._exit(0)).start()
+                    # 如果5秒后仍未退出，则强制退出
+                    threading.Timer(5.0, lambda: os._exit(0)).start()  # 减少等待时间
                 else:
                     # 如果已经在关闭过程中，再次按Ctrl+C则强制退出
                     print("\n再次检测到Ctrl+C，强制退出...")
@@ -70,6 +97,9 @@ if sys.platform == "win32":
 
 
 async def main():
+    # 导入必要的模块
+    import sys  # 确保在函数内部可以使用sys模块
+
     print("\n" + "=" * 50)
     print("正在初始化数据库...")
 
@@ -117,16 +147,35 @@ async def main():
 
     def signal_handler():
         global server_should_exit, force_exit_timer
+        import threading  # 在函数内部导入threading模块
+        import sys
+
+        # 获取当前信号名称（如果可能）
+        signal_name = "未知信号"
+        try:
+            import signal
+
+            for sig_name in dir(signal):
+                if sig_name.startswith("SIG") and not sig_name.startswith("SIG_"):
+                    if getattr(signal, sig_name) == signal.getsignal(signal.SIGTERM):
+                        signal_name = sig_name
+                        break
+        except:
+            pass
+
         if not server_should_exit:
-            print("\n正在优雅地关闭服务器...")
+            print(f"\n收到{signal_name}信号，正在优雅地关闭服务器...")
             server_should_exit = True
             should_exit.set()
 
             # 设置强制退出计时器
+            # 在容器环境中，我们需要更快地响应
+            timeout = 2.0 if sys.platform != "win32" else 3.0
             if force_exit_timer is None:
-                force_exit_timer = threading.Timer(5.0, force_exit)
+                force_exit_timer = threading.Timer(timeout, force_exit)
                 force_exit_timer.daemon = True
                 force_exit_timer.start()
+                print(f"已设置{timeout}秒后强制退出")
 
     # 注册退出处理函数
     atexit.register(lambda: print("服务器已关闭") if server_should_exit else None)
@@ -134,8 +183,16 @@ async def main():
     # 添加信号处理器
     loop = asyncio.get_running_loop()
     try:
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, signal_handler)
+        # 在Linux/Unix系统上，特别处理SIGTERM信号（容器环境中常用）
+        if sys.platform != "win32":
+            print("在Unix/Linux环境中设置信号处理器")
+            for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+                loop.add_signal_handler(sig, signal_handler)
+                print(f"已注册信号处理器: {sig.name}")
+        else:
+            # 在Windows上只处理SIGINT和SIGTERM
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.add_signal_handler(sig, signal_handler)
     except NotImplementedError:
         # Windows环境下可能不支持add_signal_handler
         import sys
@@ -143,7 +200,7 @@ async def main():
         if sys.platform == "win32":
             print("Windows环境下使用替代信号处理方式")
             # 在Windows下使用替代方案
-            import threading
+            import threading  # 确保在这里导入threading
 
             def win_signal_handler():
                 import time
@@ -169,26 +226,64 @@ async def main():
 
         # 如果是因为信号而退出
         if should_exit.is_set():
+            print("收到退出信号，开始关闭服务器...")
             # 正确关闭服务器
             if hasattr(server, "should_exit"):
                 server.should_exit = True
+                print("已设置服务器退出标志")
 
             # 等待服务器完成关闭过程
             try:
-                await asyncio.wait_for(server_task, timeout=3.0)  # 缩短超时时间
+                # 在容器环境中，我们需要更快地响应退出信号
+                print("等待服务器任务完成...")
+                await asyncio.wait_for(
+                    server_task, timeout=1.5
+                )  # 在容器环境中使用更短的超时时间
                 print("服务器已成功关闭")
                 # 取消强制退出计时器
                 if force_exit_timer and force_exit_timer.is_alive():
                     force_exit_timer.cancel()
+                    print("已取消强制退出计时器")
             except asyncio.TimeoutError:
                 print("服务器关闭超时，强制终止")
                 server_task.cancel()
                 try:
-                    await asyncio.wait_for(server_task, timeout=1.0)  # 再给1秒时间
+                    await asyncio.wait_for(
+                        server_task, timeout=0.3
+                    )  # 在容器环境中使用更短的超时时间
                 except (asyncio.TimeoutError, asyncio.CancelledError):
                     print("服务器任务已取消")
+                # 确保强制退出计时器被取消
+                if force_exit_timer and force_exit_timer.is_alive():
+                    force_exit_timer.cancel()
+                    print("强制退出计时器已取消")
             except asyncio.CancelledError:
                 print("服务器已成功关闭")
+                # 取消强制退出计时器
+                if force_exit_timer and force_exit_timer.is_alive():
+                    force_exit_timer.cancel()
+                    print("已取消强制退出计时器")
+
+            # 在容器环境中，确保所有资源都被释放
+            print("正在清理资源...")
+            # 关闭所有可能的连接池或资源
+            try:
+                from app.db.database import engine, sync_engine
+
+                # 关闭异步引擎
+                if engine:
+                    # 异步引擎需要使用异步方法关闭
+                    await engine.dispose()
+                    print("异步数据库连接池已关闭")
+
+                # 关闭同步引擎
+                if sync_engine:
+                    sync_engine.dispose()
+                    print("同步数据库连接池已关闭")
+            except ImportError as e:
+                print(f"无法导入数据库引擎: {e}")
+            except Exception as e:
+                print(f"关闭数据库连接池时出错: {e}")
     except Exception as e:
         print(f"服务器运行过程中发生错误: {e}")
         import traceback
@@ -205,16 +300,20 @@ async def main():
 
 def handle_exception(exc_type, exc_value, exc_traceback):
     """自定义异常处理函数，用于优雅地处理KeyboardInterrupt"""
+    import sys  # 确保在函数内部可以使用sys模块
+
     if issubclass(exc_type, KeyboardInterrupt):
         # 只打印简单的消息，不显示堆栈跟踪
         global server_should_exit, force_exit_timer
+        import threading  # 在函数内部导入threading模块
+
         if not server_should_exit:
             print("\n程序被用户中断，正在退出...")
             server_should_exit = True
 
             # 设置强制退出计时器
             if force_exit_timer is None:
-                force_exit_timer = threading.Timer(5.0, force_exit)
+                force_exit_timer = threading.Timer(3.0, force_exit)  # 减少等待时间
                 force_exit_timer.daemon = True
                 force_exit_timer.start()
         return

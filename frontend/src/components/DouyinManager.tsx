@@ -236,14 +236,24 @@ const DouyinManager: React.FC = () => {
 
     setIsUploading(true);
     const formData = new FormData();
-    formData.append('video', video.file);
+    formData.append('file', video.file);
     formData.append('title', video.title);
     if (video.description) {
       formData.append('description', video.description);
     }
 
+    // 打印上传信息
+    console.log('上传视频信息:', {
+      fileName: video.file.name,
+      fileType: video.file.type,
+      fileSize: video.file.size,
+      title: video.title,
+      description: video.description || '无'
+    });
+
     try {
       const token = localStorage.getItem('token');
+      console.log('开始上传视频...');
       const response = await axios.post(DOUYIN_API.UPLOAD_VIDEO, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
@@ -251,14 +261,31 @@ const DouyinManager: React.FC = () => {
         },
       });
 
+      console.log('上传视频响应:', response.data);
       if (response.data.success) {
         setVideo(prev => ({ ...prev, uploadPath: response.data.file_path }));
         setMessage({ type: 'success', content: '视频上传成功' });
       }
     } catch (error: any) {
+      console.error('上传视频错误:', error);
+      console.error('错误详情:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        message: error.message
+      });
+      
+      // 显示更详细的错误信息
+      let errorMessage = '视频上传失败';
+      if (error.response?.data?.detail) {
+        errorMessage = `上传失败: ${error.response.data.detail}`;
+      } else if (error.message) {
+        errorMessage = `上传失败: ${error.message}`;
+      }
+      
       setMessage({ 
         type: 'error', 
-        content: error.response?.data?.detail || '视频上传失败' 
+        content: errorMessage
       });
     } finally {
       setIsUploading(false);

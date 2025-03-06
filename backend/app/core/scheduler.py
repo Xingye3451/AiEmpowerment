@@ -37,10 +37,29 @@ class Scheduler:
 
     def stop(self):
         """停止调度器"""
+        if not self.running:
+            logger.info("调度器已经停止，无需再次停止")
+            return
+
+        logger.info("正在停止调度器...")
         self.running = False
-        if self.thread:
-            self.thread.join(timeout=5)
-            self.thread = None
+
+        if self.thread and self.thread.is_alive():
+            logger.info("正在等待调度器线程退出...")
+            # 在Linux容器环境中，可能需要更短的超时时间
+            self.thread.join(timeout=1.5)
+
+            if self.thread.is_alive():
+                logger.warning("调度器线程未能在规定时间内退出，强制结束")
+                # 在Linux环境中，我们不能直接终止线程，但可以标记它为daemon
+                # 这样在主程序退出时，它会自动终止
+                self.thread = None
+            else:
+                logger.info("调度器线程已成功退出")
+                self.thread = None
+        else:
+            logger.info("调度器没有活动的线程")
+
         logger.info("调度器已停止")
 
     def _run_scheduler(self):

@@ -18,7 +18,7 @@ from app.schemas.user import (
 router = APIRouter()
 
 
-@router.post("/users/", response_model=UserSchema)
+@router.post("/", response_model=UserSchema)
 async def create_user(user: UserCreate, db: AsyncSession = Depends(get_db)):
     # 检查用户名是否已存在
     result = await db.execute(select(User).where(User.username == user.username))
@@ -48,7 +48,7 @@ async def create_user(user: UserCreate, db: AsyncSession = Depends(get_db)):
     return db_user
 
 
-@router.get("/users/me", response_model=UserSchema)
+@router.get("/me", response_model=UserSchema)
 async def read_user_me(current_user: User = Depends(get_current_user)):
     return {
         "id": current_user.id,
@@ -60,7 +60,7 @@ async def read_user_me(current_user: User = Depends(get_current_user)):
     }
 
 
-@router.post("/users/reset-password-request")
+@router.post("/reset-password-request")
 async def request_password_reset(email: str, db: AsyncSession = Depends(get_db)):
     # 查找用户
     result = await db.execute(select(User).where(User.email == email))
@@ -83,7 +83,7 @@ async def request_password_reset(email: str, db: AsyncSession = Depends(get_db))
     return {"message": "重置密码链接已发送到您的邮箱"}
 
 
-@router.post("/users/reset-password-verify")
+@router.post("/reset-password-verify")
 async def verify_password_reset(
     reset_data: PasswordResetVerify, db: AsyncSession = Depends(get_db)
 ):
