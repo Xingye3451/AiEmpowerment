@@ -125,3 +125,50 @@ class TaskService:
 
         result = await db.execute(query)
         return len(result.scalars().all())
+
+    @staticmethod
+    async def update_task_progress(
+        db: AsyncSession,
+        task_id: str,
+        progress: float,
+        current_stage: Optional[str] = None,
+        message: Optional[str] = None,
+    ) -> Optional[Task]:
+        """
+        更新任务进度和当前处理阶段
+
+        Args:
+            db: 数据库会话
+            task_id: 任务ID
+            progress: 进度值（0-100）
+            current_stage: 当前处理阶段
+            message: 进度消息
+
+        Returns:
+            更新后的任务对象，如果任务不存在则返回None
+        """
+        task = await TaskService.get_task(db, task_id)
+        if not task:
+            return None
+
+        # 更新进度
+        task.progress = min(max(0, progress), 100)  # 确保进度在0-100之间
+
+        # 更新数据字段中的当前阶段
+        if task.data is None:
+            task.data = {}
+
+        if current_stage:
+            task.data["current_stage"] = current_stage
+
+        # 更新消息
+        if message:
+            task.data["message"] = message
+
+        # 更新时间
+        task.updated_at = datetime.now()
+
+        await db.commit()
+        await db.refresh(task)
+
+        return task

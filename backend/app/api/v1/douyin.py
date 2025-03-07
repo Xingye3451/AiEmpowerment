@@ -927,27 +927,44 @@ def get_video_duration(video_path: str) -> float:
 @router.post("/batch-process-videos")
 async def batch_process_videos(
     videos: List[UploadFile] = File(...),
-    text: str = Form(...),
+    text: str = Form(""),  # 修改为可选参数，默认为空字符串
     remove_subtitles: bool = Form(True),
     generate_subtitles: bool = Form(False),
     video_areas: List[str] = Form(None),  # 现在是可选的
-    auto_detect_subtitles: bool = Form(False),  # 新增自动检测选项
+    auto_detect_subtitles: bool = Form(True),  # 默认开启自动检测
     processing_mode: str = Form("cloud"),  # 新增处理模式参数，默认为云服务处理
+    subtitle_removal_mode: str = Form(
+        "balanced"
+    ),  # 新增字幕移除模式参数，默认为balanced
+    extract_voice: bool = Form(False),  # 新增是否提取音色参数
+    generate_speech: bool = Form(False),  # 新增是否生成语音参数
+    lip_sync: bool = Form(False),  # 新增是否进行唇形同步参数
+    voice_text: str = Form(""),  # 新增用于语音合成的文本
+    add_subtitles: bool = Form(False),  # 新增是否添加字幕参数
+    subtitle_style: str = Form("{}"),  # 新增字幕样式参数，默认为空JSON对象
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
     批量处理视频文件
     - videos: 视频文件列表
-    - text: 要添加的文本
+    - text: 字幕文本，用于辅助字幕擦除（当auto_detect_subtitles为False时使用）
     - remove_subtitles: 是否移除原视频字幕
     - generate_subtitles: 是否生成新字幕
     - video_areas: 视频区域选择数据
-    - auto_detect_subtitles: 是否自动检测字幕
+    - auto_detect_subtitles: 是否自动检测字幕，默认为True
     - processing_mode: 处理模式（cloud或local）
+    - subtitle_removal_mode: 字幕移除模式（fast, balanced, quality）
+    - extract_voice: 是否从视频中提取音色
+    - generate_speech: 是否使用提取的音色生成新语音
+    - lip_sync: 是否进行唇形同步
+    - voice_text: 用于语音合成的文本
+    - add_subtitles: 是否添加字幕
+    - subtitle_style: 字幕样式，支持更多颜色格式，包括HEX和RGBA
     """
     from app.services.task_service import TaskService
     from app.schemas.task import TaskCreate
+    from app.core.ai_services import SubtitleRemovalService
 
     try:
         processed_videos = []
@@ -974,6 +991,33 @@ async def batch_process_videos(
                 except json.JSONDecodeError:
                     logger.warning(f"无法解析视频 {original_filename} 的区域选择数据")
 
+            # 解析字幕样式（如果提供）
+            subtitle_style_obj = {}
+            try:
+                subtitle_style_obj = json.loads(subtitle_style)
+
+                # 处理颜色格式转换
+                if "font_color" in subtitle_style_obj:
+                    # 如果是HEX格式，转换为前端可用的格式
+                    if subtitle_style_obj["font_color"].startswith("#"):
+                        # 保持HEX格式，前端会处理
+                        pass
+
+                if "bg_color" in subtitle_style_obj:
+                    # 处理背景颜色
+                    if subtitle_style_obj["bg_color"] == "none":
+                        subtitle_style_obj["bg_color"] = "rgba(0,0,0,0)"  # 完全透明
+            except json.JSONDecodeError:
+                logger.warning(f"无法解析字幕样式数据，使用默认样式")
+                # 设置默认样式
+                subtitle_style_obj = {
+                    "font_size": 24,
+                    "font_color": "#FFFFFF",  # 白色
+                    "bg_color": "rgba(0,0,0,0)",  # 透明背景
+                    "position": "bottom",
+                    "align": "center",
+                }
+
             # 准备任务数据
             task_data = {
                 "original_path": original_path,
@@ -983,8 +1027,50 @@ async def batch_process_videos(
                 "selected_area": selected_area,
                 "auto_detect": auto_detect_subtitles,
                 "processing_mode": processing_mode,
+                "subtitle_removal_mode": subtitle_removal_mode,
                 "user_id": current_user.id,
+                # 新增AI视频处理相关参数
+                "extract_voice": extract_voice,
+                "generate_speech": generate_speech,
+                "lip_sync": lip_sync,
+                "voice_text": (
+                    voice_text if voice_text else text
+                ),  # 如果未提供语音文本，使用字幕文本
+                "add_subtitles": add_subtitles,
+                "subtitle_style": subtitle_style_obj,
+                "processing_pipeline": [],  # 用于记录处理流程
             }
+
+            # 确定处理流程
+            if remove_subtitles:
+                task_data["processing_pipeline"].append("subtitle_removal")
+
+            if extract_voice:
+                task_data["processing_pipeline"].append("voice_extraction")
+
+            if generate_speech:
+                if not extract_voice:
+                    # 如果要生成语音但不提取音色，添加音色提取步骤
+                    task_data["extract_voice"] = True
+                    task_data["processing_pipeline"].append("voice_extraction")
+                task_data["processing_pipeline"].append("speech_generation")
+
+            if lip_sync:
+                if not remove_subtitles:
+                    # 如果要进行唇形同步但不移除字幕，添加字幕移除步骤
+                    task_data["remove_subtitles"] = True
+                    task_data["processing_pipeline"].append("subtitle_removal")
+                if not generate_speech:
+                    # 如果要进行唇形同步但不生成语音，添加语音生成步骤
+                    task_data["generate_speech"] = True
+                    if not extract_voice:
+                        task_data["extract_voice"] = True
+                        task_data["processing_pipeline"].append("voice_extraction")
+                    task_data["processing_pipeline"].append("speech_generation")
+                task_data["processing_pipeline"].append("lip_sync")
+
+            if add_subtitles:
+                task_data["processing_pipeline"].append("add_subtitles")
 
             # 创建任务
             task_create = TaskCreate(
@@ -997,7 +1083,7 @@ async def batch_process_videos(
             # 保存任务到数据库
             task = await TaskService.create_task(db, task_create)
             logger.info(
-                f"创建任务: ID={task.id}, 类型={task.task_type}, 用户ID={current_user.id}"
+                f"创建任务: ID={task.id}, 类型={task.task_type}, 用户ID={current_user.id}, 处理流程={task_data['processing_pipeline']}"
             )
 
             # 添加任务到队列
@@ -1013,6 +1099,7 @@ async def batch_process_videos(
                 {
                     "task_id": task.id,
                     "original_filename": original_filename,
+                    "processing_pipeline": task_data["processing_pipeline"],
                 }
             )
 
@@ -1048,12 +1135,43 @@ async def get_process_status(
     elif task.status == "failed" or task.error:
         task_result = "failed"
 
+    # 处理阶段描述映射
+    pipeline_stage_descriptions = {
+        "subtitle_removal": "字幕擦除",
+        "voice_extraction": "音色提取",
+        "speech_generation": "语音生成",
+        "lip_sync": "唇形同步",
+        "add_subtitles": "添加字幕",
+    }
+
+    # 获取当前处理阶段的描述
+    current_stage = ""
+    if task.data and "current_stage" in task.data:
+        stage = task.data["current_stage"]
+        current_stage = pipeline_stage_descriptions.get(stage, stage)
+
+    # 构建详细的消息
+    message = ""
+    if task.status == "pending":
+        message = "任务等待处理中..."
+    elif task.status == "running":
+        if current_stage:
+            message = f"正在进行{current_stage}处理..."
+        else:
+            message = "任务处理中..."
+    elif task.status == "completed":
+        message = "任务处理完成"
+    elif task.status == "failed":
+        message = f"任务处理失败: {task.error or '未知错误'}"
+
     response = {
         "task_id": task.id,
         "type": task.task_type,
         "status": task.status,
         "result": task_result,
         "progress": task.progress,
+        "message": message,  # 添加详细消息
+        "current_stage": current_stage,  # 添加当前处理阶段
         "error": task.error,
         "created_at": task.created_at.isoformat(),
         "updated_at": task.updated_at.isoformat(),
@@ -1068,11 +1186,34 @@ async def get_process_status(
             safe_data.pop("password")
         if "token" in safe_data:
             safe_data.pop("token")
+
+        # 添加处理流程信息
+        if "processing_pipeline" in safe_data:
+            pipeline = safe_data["processing_pipeline"]
+            # 将处理流程转换为人类可读的描述
+            readable_pipeline = [
+                pipeline_stage_descriptions.get(stage, stage) for stage in pipeline
+            ]
+            response["processing_pipeline"] = pipeline
+            response["readable_pipeline"] = readable_pipeline
+
         response["data"] = safe_data
 
     # 如果有结果数据，添加到响应中
     if task.result:
         response["result_data"] = task.result
+
+        # 如果有缩略图，添加缩略图URL
+        if "thumbnail_path" in task.result:
+            thumbnail_filename = os.path.basename(task.result["thumbnail_path"])
+            response["thumbnail_url"] = (
+                f"/api/v1/douyin/processed-video-thumbnail/{task.id}"
+            )
+
+        # 如果有处理后的视频，添加视频URL
+        if "processed_path" in task.result:
+            response["download_url"] = f"/api/v1/douyin/processed-video/{task.id}"
+            response["preview_url"] = f"/api/v1/douyin/video/{task.id}"
 
     return response
 

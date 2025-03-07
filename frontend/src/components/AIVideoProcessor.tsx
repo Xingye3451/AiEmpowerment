@@ -1,1404 +1,1194 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  Box,
+  Upload,
   Button,
-  Container,
-  Paper,
-  Typography,
-  TextField,
-  CircularProgress,
-  List,
-  ListItem,
-  ListItemText,
-  Alert,
-  Card,
-  CardContent,
-  Fade,
-  Zoom,
-  IconButton,
-  useTheme,
-  Divider,
-  FormGroup,
-  FormControlLabel,
+  Input,
   Checkbox,
-  Tooltip,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Stepper,
-  Step,
-  StepLabel,
-  Grid,
-  RadioGroup,
+  Progress,
+  Card,
+  Spin,
+  message,
+  Tabs,
+  Space,
+  Select,
+  Typography,
+  Row,
+  Col,
+  Divider,
+  Form,
+  InputNumber,
   Radio,
-  FormControl,
-  FormLabel,
+  Tag,
+  Tooltip,
   Switch,
-  Chip,
-  LinearProgress
-} from '@mui/material';
+  Empty,
+  Alert,
+  Modal
+} from 'antd';
 import { 
-  CloudUpload as CloudUploadIcon,
-  Delete as DeleteIcon,
-  CheckCircle as CheckCircleIcon,
-  Error as ErrorIcon,
-  Refresh as RefreshIcon,
-  NavigateNext as NavigateNextIcon,
-  NavigateBefore as NavigateBeforeIcon,
-  Close as CloseIcon,
-  Cloud as CloudIcon,
-  Computer as ComputerIcon,
-  Download as DownloadIcon,
-  Visibility as VisibilityIcon,
-  Info as InfoIcon,
-  PlayArrow as RunningIcon,
-  Pending as PendingIcon
-} from '@mui/icons-material';
+  UploadOutlined,
+  VideoCameraOutlined,
+  PlayCircleOutlined,
+  DownloadOutlined,
+  InfoCircleOutlined,
+  DeleteOutlined,
+  CheckCircleOutlined,
+  ClockCircleOutlined,
+  SyncOutlined,
+  ExclamationCircleOutlined,
+  LeftOutlined,
+  RightOutlined
+} from '@ant-design/icons';
+import type { RcFile, UploadFile } from 'antd/lib/upload/interface';
+import type { CheckboxChangeEvent } from 'antd/lib/checkbox';
 import axios from 'axios';
-import { DOUYIN_API } from '../config/api';
-import TaskStatusPoller from './temp/TaskStatusPoller';
+import { useWebSocket } from '../hooks/useWebSocket';
+import { ColorPicker } from 'antd';
 
-interface ProcessingTask {
+const { TextArea } = Input;
+const { TabPane } = Tabs;
+const { Title, Text } = Typography;
+const { Option } = Select;
+const { Group: RadioGroup } = Radio;
+
+interface VideoTask {
   task_id: string;
   original_filename: string;
-  processed_filename: string;
-  status?: string;
-  progress?: number;
-  result?: string | {
-    video_url?: string;
-    thumbnail_url?: string;
-    filename?: string;
-  };
+  processing_pipeline: string[];
+}
+
+interface TaskStatus {
+  status: string;
+  progress: number;
+  message: string;
+  result?: any;
   error?: string;
 }
 
-interface VideoPreview {
-  file: File;
-  previewUrl: string;
-  selectedArea?: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  };
-  uploadPath?: string;
+interface SubtitleStyle {
+  font_size?: number;
+  font_color?: string;
+  bg_color?: string;
+  position?: 'top' | 'middle' | 'bottom';
+  align?: 'left' | 'center' | 'right';
 }
 
+// 预设颜色选项
+const PRESET_COLORS = [
+  '#FFFFFF', // 白色
+  '#000000', // 黑色
+  '#FFFF00', // 黄色
+  '#FF0000', // 红色
+  '#00FF00', // 绿色
+  '#0000FF', // 蓝色
+  '#FF00FF', // 粉色
+  '#00FFFF', // 青色
+  '#FFA500', // 橙色
+];
+
+// 预设背景颜色选项
+const BG_PRESET_COLORS = [
+  'none',
+  'rgba(0,0,0,0.5)', // 半透明黑
+  'rgba(0,0,0,0.7)', // 深黑
+  'rgba(0,0,0,0)', // 透明
+  'rgba(0,0,255,0.3)', // 半透明蓝
+  'rgba(255,0,0,0.3)', // 半透明红
+];
+
 const AIVideoProcessor: React.FC = () => {
-  const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
-  const [text, setText] = useState('');
+  // 上传文件状态
+  const [fileList, setFileList] = useState<RcFile[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [processingTasks, setProcessingTasks] = useState<ProcessingTask[]>([]);
-  const [error, setError] = useState('');
-  const [removeSubtitles, setRemoveSubtitles] = useState(true);
-  const [generateSubtitles, setGenerateSubtitles] = useState(false);
-  const [videoPreviews, setVideoPreviews] = useState<VideoPreview[]>([]);
+  
+  // 批量预览状态
+  const [batchPreviewVisible, setBatchPreviewVisible] = useState(false);
+  const [previewVideos, setPreviewVideos] = useState<{url: string, name: string}[]>([]);
   const [currentPreviewIndex, setCurrentPreviewIndex] = useState(0);
-  const [isAreaSelectionOpen, setIsAreaSelectionOpen] = useState(false);
-  const [selectionComplete, setSelectionComplete] = useState(false);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [startPos, setStartPos] = useState({ x: 0, y: 0 });
-  const theme = useTheme();
-  const imgRef = useRef<HTMLImageElement>(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [uploadSuccess, setUploadSuccess] = useState(false);
-  const [processingMode, setProcessingMode] = useState<'cloud' | 'local'>('cloud');
-  const [localProcessingAvailable, setLocalProcessingAvailable] = useState<boolean>(false);
-
-  // 辅助函数：构建完整URL
-  const buildFullUrl = (url: string): string => {
-    if (url.startsWith('http') || url.startsWith('data:')) {
-      return url; // 已经是完整URL或者是data URL
-    }
-    
-    // 如果是相对路径，添加基础URL
-    // 强制使用后端服务器地址
-    const baseUrl = 'http://localhost:8000';
-    return url.startsWith('/') ? `${baseUrl}${url}` : `${baseUrl}/${url}`;
-  };
-
-  // 从视频文件生成预览图
-  const generatePreviewFromVideo = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      try {
-        // 创建视频元素
-        const video = document.createElement('video');
-        video.preload = 'metadata';
-        
-        // 创建对象URL
-        const objectUrl = URL.createObjectURL(file);
-        video.src = objectUrl;
-        
-        // 视频加载完成后生成预览图
-        video.onloadedmetadata = () => {
-          // 设置视频时间到1秒处
-          video.currentTime = 1;
-          
-          // 当视频跳转到指定时间后生成预览图
-          video.onseeked = () => {
-            // 创建canvas
-            const canvas = document.createElement('canvas');
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            
-            // 绘制视频帧
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-              
-              // 转换为base64
-              const dataUrl = canvas.toDataURL('image/jpeg');
-              
-              // 释放资源
-              URL.revokeObjectURL(objectUrl);
-              
-              resolve(dataUrl);
-            } else {
-              reject(new Error('无法获取canvas上下文'));
-            }
-          };
-          
-          // 处理视频跳转失败
-          video.onerror = () => {
-            URL.revokeObjectURL(objectUrl);
-            reject(new Error('视频跳转失败'));
-          };
-        };
-        
-        // 处理视频加载失败
-        video.onerror = () => {
-          URL.revokeObjectURL(objectUrl);
-          reject(new Error('视频加载失败'));
-        };
-      } catch (error) {
-        reject(error);
-      }
-    });
-  };
-
-  const adjustCanvasSize = () => {
-    if (!canvasRef.current || !imgRef.current) return;
-    
-    canvasRef.current.width = imgRef.current.offsetWidth;
-    canvasRef.current.height = imgRef.current.offsetHeight;
-    
-    // 如果当前预览已有选区，则绘制它
-    drawSelectedArea();
-  };
-
-  const drawSelectedArea = () => {
-    if (!canvasRef.current) return;
-    
-    const ctx = canvasRef.current.getContext('2d');
-    if (!ctx) return;
-    
-    // 清除画布
-    ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-    
-    // 获取当前预览的选区
-    const selectedArea = videoPreviews[currentPreviewIndex]?.selectedArea;
-    
-    if (selectedArea) {
-      ctx.strokeStyle = 'red';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(
-        selectedArea.x, 
-        selectedArea.y, 
-        selectedArea.width, 
-        selectedArea.height
-      );
-      
-      ctx.fillStyle = 'rgba(255, 0, 0, 0.2)';
-      ctx.fillRect(
-        selectedArea.x, 
-        selectedArea.y, 
-        selectedArea.width, 
-        selectedArea.height
-      );
-    }
-  };
-
+  
+  // 任务视频预览状态
+  const [taskPreviewVisible, setTaskPreviewVisible] = useState(false);
+  const [taskPreviewUrl, setTaskPreviewUrl] = useState('');
+  const [taskPreviewTitle, setTaskPreviewTitle] = useState('');
+  
+  // 处理选项状态
+  const [text, setText] = useState('');
+  const [voiceText, setVoiceText] = useState('');
+  const [removeSubtitles, setRemoveSubtitles] = useState(true);
+  const [extractVoice, setExtractVoice] = useState(true);
+  const [generateSpeech, setGenerateSpeech] = useState(true);
+  const [lipSync, setLipSync] = useState(true);
+  const [addSubtitles, setAddSubtitles] = useState(true);
+  const [autoDetectSubtitles, setAutoDetectSubtitles] = useState(true);
+  const [subtitleRemovalMode, setSubtitleRemovalMode] = useState('balanced');
+  
+  // 字幕样式
+  const [subtitleStyle, setSubtitleStyle] = useState<SubtitleStyle>({
+    font_size: 24,
+    font_color: '#FFFFFF',
+    bg_color: 'none',
+    position: 'bottom',
+    align: 'center'
+  });
+  
+  // 任务状态
+  const [tasks, setTasks] = useState<VideoTask[]>([]);
+  const [taskStatuses, setTaskStatuses] = useState<Record<string, TaskStatus>>({});
+  const [processingComplete, setProcessingComplete] = useState(false);
+  
+  // WebSocket连接
+  const { lastMessage } = useWebSocket();
+  
+  // 添加键盘事件监听
   useEffect(() => {
-    if (imgRef.current) {
-      const handleImageLoad = () => {
-        adjustCanvasSize();
-        imgRef.current?.removeEventListener('load', handleImageLoad);
-      };
-
-      if (imgRef.current.complete) {
-        handleImageLoad();
-      } else {
-        imgRef.current.addEventListener('load', handleImageLoad);
-        return () => {
-          if (imgRef.current) {
-            imgRef.current.removeEventListener('load', handleImageLoad);
-          }
-        };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!batchPreviewVisible) return;
+      
+      if (e.key === 'ArrowLeft' && currentPreviewIndex > 0) {
+        setCurrentPreviewIndex(currentPreviewIndex - 1);
+      } else if (e.key === 'ArrowRight' && currentPreviewIndex < previewVideos.length - 1) {
+        setCurrentPreviewIndex(currentPreviewIndex + 1);
+      } else if (e.key === 'Escape') {
+        setBatchPreviewVisible(false);
+        // 释放所有URL对象
+        previewVideos.forEach(video => {
+          URL.revokeObjectURL(video.url);
+        });
+        setPreviewVideos([]);
       }
-    }
-  }, [currentPreviewIndex, videoPreviews]);
-
-  useEffect(() => {
-    if (isAreaSelectionOpen && videoPreviews.length > 0) {
-      // 确保图片加载后调整画布大小
-      if (imgRef.current) {
-        if (imgRef.current.complete) {
-          adjustCanvasSize();
-        } else {
-          const handleImageLoad = () => {
-            adjustCanvasSize();
-            imgRef.current?.removeEventListener('load', handleImageLoad);
-          };
-          
-          const handleImageError = (e: Event) => {
-            // 获取当前图片URL
-            const currentUrl = imgRef.current?.src || '';
-            
-            // 如果当前URL已经是默认预览图，则不再尝试加载
-            if (currentUrl.includes('default_preview.jpg')) {
-              // 创建一个简单的内联预览图
-              try {
-                const canvas = document.createElement('canvas');
-                canvas.width = 480;
-                canvas.height = 270;
-                const ctx = canvas.getContext('2d');
-                if (ctx) {
-                  // 绘制灰色背景
-                  ctx.fillStyle = '#f0f0f0';
-                  ctx.fillRect(0, 0, canvas.width, canvas.height);
-                  
-                  // 绘制文字
-                  ctx.fillStyle = '#808080';
-                  ctx.font = '16px Arial';
-                  ctx.textAlign = 'center';
-                  ctx.textBaseline = 'middle';
-                  ctx.fillText('预览图加载失败', canvas.width / 2, canvas.height / 2);
-                  
-                  // 转换为data URL
-                  const dataUrl = canvas.toDataURL('image/jpeg');
-                  
-                  if (imgRef.current) {
-                    imgRef.current.src = dataUrl;
-                  }
-                  
-                  // 更新预览数组
-                  setVideoPreviews(prev => {
-                    const newPreviews = [...prev];
-                    if (newPreviews[currentPreviewIndex]) {
-                      newPreviews[currentPreviewIndex] = {
-                        ...newPreviews[currentPreviewIndex],
-                        previewUrl: dataUrl
-                      };
-                    }
-                    return newPreviews;
-                  });
-                }
-              } catch (error) {
-                console.error('创建内联预览图失败:', error);
-              }
-              
-              return;
-            }
-            
-            // 使用默认预览图
-            const defaultPreviewUrl = buildFullUrl('/static/previews/default_preview.jpg');
-            
-            if (imgRef.current) {
-              imgRef.current.src = defaultPreviewUrl;
-            }
-            
-            // 更新预览数组
-            setVideoPreviews(prev => {
-              const newPreviews = [...prev];
-              if (newPreviews[currentPreviewIndex]) {
-                newPreviews[currentPreviewIndex] = {
-                  ...newPreviews[currentPreviewIndex],
-                  previewUrl: defaultPreviewUrl
-                };
-              }
-              return newPreviews;
-            });
-            
-            imgRef.current?.removeEventListener('error', handleImageError);
-          };
-          
-          imgRef.current.addEventListener('load', handleImageLoad);
-          imgRef.current.addEventListener('error', handleImageError);
-          
-          return () => {
-            imgRef.current?.removeEventListener('load', handleImageLoad);
-            imgRef.current?.removeEventListener('error', handleImageError);
-          };
-        }
-      }
-    }
-  }, [currentPreviewIndex, videoPreviews, isAreaSelectionOpen]);
-
-  const generateVideoPreviews = async (files: FileList) => {
-    try {
-      setIsUploading(true);
-      setUploadProgress(0);
-      setUploadSuccess(false);
-      setError('');
-      
-      const previews: VideoPreview[] = [];
-      const totalFiles = files.length;
-      const token = localStorage.getItem('token');
-      
-      if (!token) {
-        throw new Error('未登录或登录已过期，请重新登录');
-      }
-      
-      for (let i = 0; i < files.length; i++) {
-        try {
-          const file = files[i];
-          const formData = new FormData();
-          formData.append('file', file);
-          formData.append('title', file.name);
-          
-          const uploadResponse = await axios.post(DOUYIN_API.UPLOAD_VIDEO, formData, {
-            headers: {
-              'Content-Type': 'multipart/form-data',
-              'Authorization': `Bearer ${token}`
-            },
-            onUploadProgress: (progressEvent) => {
-              if (progressEvent.total) {
-                const fileProgress = (progressEvent.loaded / progressEvent.total) * 100;
-                const overallProgress = ((i / totalFiles) * 100) + (fileProgress / totalFiles);
-                setUploadProgress(Math.min(Math.round(overallProgress), 99));
-              }
-            }
-          });
-
-          if (uploadResponse.data) {
-            // 检查后端返回的数据中是否包含预览图和视频URL
-            const hasPreviewUrl = 'preview_url' in uploadResponse.data;
-            const hasVideoUrl = 'video_url' in uploadResponse.data;
-            const hasSuccess = 'success' in uploadResponse.data;
-            
-            // 如果响应中包含success字段且为false，则表示上传失败
-            if (hasSuccess && !uploadResponse.data.success) {
-              throw new Error(`视频 ${file.name} 上传失败: ${uploadResponse.data.detail || '未知错误'}`);
-            }
-            
-            // 直接使用后端返回的URL
-            let previewUrl = uploadResponse.data.preview_url;
-            let videoUrl = uploadResponse.data.video_url;
-            
-            // 如果后端没有返回预览图URL，则根据文件名构造一个
-            if (!previewUrl) {
-              // 从文件路径中提取文件名
-              const filePath = uploadResponse.data.saved_path || uploadResponse.data.file_path || '';
-              const fileName = filePath.split('/').pop() || file.name;
-              const fileNameWithoutExt = fileName.split('.')[0];
-              
-              // 构造预览图URL
-              previewUrl = `/static/previews/${fileNameWithoutExt}.jpg`;
-            }
-            
-            // 如果后端没有返回视频URL，则根据文件名构造一个
-            if (!videoUrl) {
-              // 从文件路径中提取文件名
-              const filePath = uploadResponse.data.saved_path || uploadResponse.data.file_path || '';
-              const fileName = filePath.split('/').pop() || file.name;
-              
-              // 构造视频URL
-              videoUrl = `/static/videos/${fileName}`;
-            }
-            
-            // 确保URL是完整的
-            previewUrl = buildFullUrl(previewUrl);
-            videoUrl = buildFullUrl(videoUrl);
-            
-            // 验证预览图URL是否有效
-            try {
-              const previewResponse = await fetch(previewUrl, { method: 'HEAD' });
-              
-              if (!previewResponse.ok) {
-                // 尝试生成本地预览图
-                try {
-                  const localPreviewUrl = await generatePreviewFromVideo(file);
-                  previewUrl = localPreviewUrl;
-                } catch (previewError) {
-                  // 使用默认预览图
-                  previewUrl = buildFullUrl('/static/previews/default_preview.jpg');
-                }
-              }
-            } catch (error) {
-              // 尝试生成本地预览图
-              try {
-                const localPreviewUrl = await generatePreviewFromVideo(file);
-                previewUrl = localPreviewUrl;
-              } catch (previewError) {
-                // 使用默认预览图
-                previewUrl = buildFullUrl('/static/previews/default_preview.jpg');
-              }
-            }
-            
-            previews.push({ 
-              file, 
-              previewUrl: previewUrl,
-              uploadPath: uploadResponse.data.saved_path || uploadResponse.data.file_path || ''
-            });
-          } else {
-            throw new Error(`视频 ${file.name} 上传失败: 服务器响应格式不正确`);
-          }
-        } catch (error: any) {
-          console.error(`视频 ${files[i].name} 上传失败:`, error);
-          if (error.response?.status === 401) {
-            throw new Error('认证失败，请重新登录');
-          }
-          throw new Error(`视频 ${files[i].name} 上传失败: ${error.response?.data?.detail || error.message || '未知错误'}`);
-        }
-      }
-      
-      setUploadProgress(100);
-      setUploadSuccess(true);
-      setVideoPreviews(previews);
-      
-      if (previews.length > 0) {
-        setIsAreaSelectionOpen(true);
-        setCurrentPreviewIndex(0);
-        setIsUploading(false);
-      } else {
-        setIsUploading(false);
-      }
-    } catch (error: any) {
-      console.error('视频上传失败:', error);
-      setError(error.message || '视频上传失败，请重试');
-      setIsUploading(false);
-      setUploadSuccess(false);
-      
-      if (error.response?.status === 401 || error.message.includes('认证失败') || error.message.includes('未登录')) {
-        localStorage.removeItem('token');
-        window.location.href = '/login';
-      }
-    }
-  };
-
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files) {
-      setSelectedFiles(event.target.files);
-      generateVideoPreviews(event.target.files);
-      setError('');
-    }
-  };
-
-  const handleTextChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setText(event.target.value);
-    setError('');
-  };
-
-  const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    
-    const scaleX = canvasRef.current.width / rect.width;
-    const scaleY = canvasRef.current.height / rect.height;
-    const x = (e.clientX - rect.left) * scaleX;
-    const y = (e.clientY - rect.top) * scaleY;
-    
-    setIsDrawing(true);
-    setStartPos({ x, y });
-    
-    const ctx = canvasRef.current.getContext('2d');
-    if (ctx) {
-      ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-    }
-  };
-
-  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDrawing || !canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    
-    const scaleX = canvasRef.current.width / rect.width;
-    const scaleY = canvasRef.current.height / rect.height;
-    const x = (e.clientX - rect.left) * scaleX;
-    const y = (e.clientY - rect.top) * scaleY;
-    
-    const ctx = canvasRef.current.getContext('2d');
-    if (ctx) {
-      ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-      
-      const width = x - startPos.x;
-      const height = y - startPos.y;
-      
-      ctx.strokeStyle = 'red';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(startPos.x, startPos.y, width, height);
-      
-      ctx.fillStyle = 'rgba(255, 0, 0, 0.2)';
-      ctx.fillRect(startPos.x, startPos.y, width, height);
-    }
-  };
-
-  const handleCanvasMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDrawing || !canvasRef.current) return;
-    setIsDrawing(false);
-    
-    const rect = canvasRef.current.getBoundingClientRect();
-    
-    const scaleX = canvasRef.current.width / rect.width;
-    const scaleY = canvasRef.current.height / rect.height;
-    const x = (e.clientX - rect.left) * scaleX;
-    const y = (e.clientY - rect.top) * scaleY;
-    
-    const selectedArea = {
-      x: Math.min(startPos.x, x),
-      y: Math.min(startPos.y, y),
-      width: Math.abs(x - startPos.x),
-      height: Math.abs(y - startPos.y)
     };
     
-    setVideoPreviews(prevPreviews => {
-      const newPreviews = [...prevPreviews];
-      newPreviews[currentPreviewIndex] = {
-        ...newPreviews[currentPreviewIndex],
-        selectedArea
-      };
-      console.log(`保存选区 - 视频${currentPreviewIndex + 1}:`, selectedArea);
-      return newPreviews;
-    });
+    window.addEventListener('keydown', handleKeyDown);
     
-    drawSelectedArea();
-  };
-
-  const handleNextVideo = () => {
-    if (currentPreviewIndex < videoPreviews.length - 1) {
-      setCurrentPreviewIndex(prevIndex => {
-        console.log(`切换到下一个视频: ${prevIndex + 1} -> ${prevIndex + 2}`);
-        return prevIndex + 1;
-      });
-    } else {
-      setIsAreaSelectionOpen(false);
-      setSelectionComplete(true);
-    }
-  };
-
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [batchPreviewVisible, currentPreviewIndex, previewVideos]);
+  
+  // 切换到上一个视频
   const handlePrevVideo = () => {
     if (currentPreviewIndex > 0) {
-      setCurrentPreviewIndex(prevIndex => {
-        console.log(`切换到上一个视频: ${prevIndex + 1} -> ${prevIndex}`);
-        return prevIndex - 1;
-      });
+      setCurrentPreviewIndex(currentPreviewIndex - 1);
     }
   };
-
-  const handleSubmit = async () => {
-    if (!selectedFiles || selectedFiles.length === 0) {
-      setError('请选择要处理的视频文件');
-      return;
-    }
-
-    if (!selectionComplete) {
-      setError('请先完成所有视频的字幕区域选择');
-      return;
-    }
-
-    setIsProcessing(true);
-    setError('');
-
-    const token = localStorage.getItem('token');
-    if (!token) {
-      setError('未登录或登录已过期，请重新登录');
-      setIsProcessing(false);
-      window.location.href = '/login';
-      return;
-    }
-
-    const formData = new FormData();
-    videoPreviews.forEach((preview, index) => {
-      formData.append('videos', preview.file);
-      formData.append(`video_areas[${index}]`, JSON.stringify(preview.selectedArea));
-    });
-    formData.append('text', text);
-    formData.append('remove_subtitles', removeSubtitles.toString());
-    formData.append('generate_subtitles', generateSubtitles.toString());
-    formData.append('processing_mode', processingMode);
-
-    console.log('提交视频处理请求:', {
-      视频数量: videoPreviews.length,
-      文本: text,
-      移除字幕: removeSubtitles,
-      生成字幕: generateSubtitles,
-      处理模式: processingMode
-    });
-
-    try {
-      const response = await axios.post(DOUYIN_API.BATCH_PROCESS_VIDEOS, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-          'Authorization': `Bearer ${token}`
-        },
-      });
-      
-      console.log('视频处理请求成功:', response.data);
-      
-      if (response.data && response.data.tasks) {
-        console.log('创建的任务:', response.data.tasks);
-        setProcessingTasks([...processingTasks, ...response.data.tasks]);
-        
-        // 立即查询一次任务状态
-        for (const task of response.data.tasks) {
-          try {
-            const statusResponse = await axios.get(DOUYIN_API.PROCESS_STATUS(task.task_id), {
-              headers: {
-                'Authorization': `Bearer ${token}`
-              }
-            });
-            console.log(`任务 ${task.task_id} 状态:`, statusResponse.data);
-          } catch (statusErr) {
-            console.error(`获取任务 ${task.task_id} 状态失败:`, statusErr);
-          }
-        }
-      } else {
-        console.warn('响应中没有任务信息:', response.data);
-      }
-    } catch (err: any) {
-      console.error('视频处理失败:', err);
-      const errorMessage = err.response?.data?.detail || '视频处理失败';
-      console.error('错误详情:', errorMessage);
-      setError(errorMessage);
-      
-      if (err.response?.status === 401) {
-        localStorage.removeItem('token');
-        window.location.href = '/login';
-      }
-    } finally {
-      setIsProcessing(false);
-      setSelectedFiles(null);
-      setText('');
-      setVideoPreviews([]);
-      setSelectionComplete(false);
+  
+  // 切换到下一个视频
+  const handleNextVideo = () => {
+    if (currentPreviewIndex < previewVideos.length - 1) {
+      setCurrentPreviewIndex(currentPreviewIndex + 1);
     }
   };
-
+  
+  // 关闭批量预览
+  const handleBatchPreviewClose = () => {
+    setBatchPreviewVisible(false);
+    // 释放所有URL对象
+    previewVideos.forEach(video => {
+      URL.revokeObjectURL(video.url);
+    });
+    setPreviewVideos([]);
+  };
+  
+  // 处理WebSocket消息
   useEffect(() => {
-    const checkLocalProcessingAvailability = async () => {
+    if (lastMessage) {
       try {
-        const token = localStorage.getItem('token');
-        if (!token) return;
+        const data = JSON.parse(lastMessage.data);
         
-        const response = await axios.get(DOUYIN_API.CHECK_LOCAL_PROCESSING, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        
-        if (response.data && typeof response.data === 'object' && 'available' in response.data) {
-          setLocalProcessingAvailable(response.data.available);
-        } else {
-          console.error('本地处理可用性数据格式不正确:', response.data);
-          setLocalProcessingAvailable(false);
+        // 检查是否是视频处理进度更新
+        if (data.type === 'video_processing_progress' && data.task_id) {
+          setTaskStatuses(prev => ({
+            ...prev,
+            [data.task_id]: {
+              status: 'running',
+              progress: data.progress,
+              message: data.message
+            }
+          }));
         }
-      } catch (error) {
-        console.error('检查本地处理可用性失败:', error);
-        setLocalProcessingAvailable(false);
-      }
-    };
-    
-    checkLocalProcessingAvailability();
-  }, []);
-
-  // 监控区域选择对话框状态
-  useEffect(() => {
-    console.log('isAreaSelectionOpen状态变化:', isAreaSelectionOpen);
-    console.log('videoPreviews状态:', videoPreviews);
-  }, [isAreaSelectionOpen, videoPreviews]);
-
-  return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-      {/* 添加任务状态轮询组件 */}
-      <TaskStatusPoller 
-        processingTasks={processingTasks}
-        setProcessingTasks={setProcessingTasks}
-      />
-      
-      <Card 
-        elevation={3} 
-        sx={{ 
-          borderRadius: 3,
-          background: 'linear-gradient(45deg, #e8eaf6 30%, #ffffff 90%)',
-          mb: 3
-        }}
-      >
-        <CardContent>
-          <Typography 
-            variant="h5" 
-            gutterBottom 
-            sx={{ 
-              fontWeight: 'bold',
-              color: theme.palette.primary.main,
-              mb: 2
-            }}
-          >
-            AI视频处理
-          </Typography>
-
-          <Box sx={{ mb: 3, p: 2, bgcolor: 'rgba(63, 81, 181, 0.04)', borderRadius: 2 }}>
-            <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'medium' }}>
-              处理模式
-            </Typography>
-            
-            <FormControl component="fieldset">
-              <RadioGroup
-                row
-                value={processingMode}
-                onChange={(e) => setProcessingMode(e.target.value as 'cloud' | 'local')}
-              >
-                <FormControlLabel 
-                  value="cloud" 
-                  control={<Radio />} 
-                  label={
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <CloudIcon sx={{ mr: 1, color: theme.palette.primary.main }} />
-                      <Typography>云服务处理</Typography>
-                    </Box>
-                  }
-                />
-                <FormControlLabel 
-                  value="local" 
-                  disabled={!localProcessingAvailable}
-                  control={<Radio />} 
-                  label={
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <ComputerIcon sx={{ mr: 1, color: localProcessingAvailable ? theme.palette.success.main : theme.palette.text.disabled }} />
-                      <Typography>本地处理</Typography>
-                      {!localProcessingAvailable && (
-                        <Typography variant="caption" sx={{ ml: 1, color: theme.palette.text.secondary }}>
-                          (即将推出)
-                        </Typography>
-                      )}
-                    </Box>
-                  }
-                />
-              </RadioGroup>
-            </FormControl>
-            
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-              {processingMode === 'cloud' 
-                ? '云服务处理: 使用专业AI云服务进行处理，速度快，质量高，无需本地GPU' 
-                : '本地处理: 使用您的计算机进行处理，保护隐私，无需联网，但需要较高配置'}
-            </Typography>
-          </Box>
-
-          <Box 
-            component="label"
-            sx={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              p: 3,
-              mb: 3,
-              border: '2px dashed',
-              borderColor: theme.palette.primary.main,
-              borderRadius: 2,
-              cursor: isUploading ? 'default' : 'pointer',
-              transition: 'all 0.3s',
-              backgroundColor: 'rgba(63, 81, 181, 0.04)',
-              '&:hover': {
-                backgroundColor: isUploading ? 'rgba(63, 81, 181, 0.04)' : 'rgba(63, 81, 181, 0.08)',
-                transform: isUploading ? 'none' : 'translateY(-2px)',
+        
+        // 检查是否是视频处理完成
+        else if (data.type === 'video_processing_completed' && data.task_id) {
+          setTaskStatuses(prev => ({
+            ...prev,
+            [data.task_id]: {
+              status: 'completed',
+              progress: 100,
+              message: data.message,
+              result: {
+                video_url: data.download_url,
+                thumbnail_url: data.thumbnail_url
               }
-            }}
-          >
-            <input
-              type="file"
-              multiple
-              onChange={handleFileChange}
-              style={{ display: 'none' }}
-              accept="video/*"
-              disabled={isUploading}
-            />
-            
-            {isUploading ? (
-              <>
-                <CircularProgress 
-                  variant="determinate" 
-                  value={uploadProgress} 
-                  size={60}
-                  thickness={4}
-                  sx={{ 
-                    color: theme.palette.primary.main,
-                    mb: 2
+            }
+          }));
+          
+          message.success('视频处理完成！');
+          setProcessingComplete(true);
+        }
+        
+        // 检查是否是视频处理失败
+        else if (data.type === 'video_processing_failed' && data.task_id) {
+          setTaskStatuses(prev => ({
+            ...prev,
+            [data.task_id]: {
+              status: 'failed',
+              progress: 0,
+              message: data.message,
+              error: data.message
+            }
+          }));
+          
+          message.error(`视频处理失败: ${data.message}`);
+        }
+      } catch (e) {
+        console.error('解析WebSocket消息失败', e);
+      }
+    }
+  }, [lastMessage]);
+  
+  // 文件上传前检查
+  const handleFileChange = (file: RcFile) => {
+    // 检查文件类型
+    const isVideo = file.type.startsWith('video/');
+    if (!isVideo) {
+      message.error('只能上传视频文件！');
+      return false;
+    }
+    
+    // 检查文件大小，限制为500MB
+    const isLt500M = file.size / 1024 / 1024 < 500;
+    if (!isLt500M) {
+      message.error('视频文件大小不能超过500MB！');
+      return false;
+    }
+    
+    // 添加到文件列表
+    setFileList(prev => [...prev, file]);
+    return false; // 阻止自动上传
+  };
+  
+  // 打开批量预览
+  const handleBatchPreview = () => {
+    if (fileList.length === 0) {
+      message.info('请先选择视频文件');
+      return;
+    }
+    
+    try {
+      // 为每个文件创建URL
+      const videos = fileList.map(file => {
+        try {
+          // 创建视频URL
+          const videoUrl = URL.createObjectURL(file);
+          return {
+            url: videoUrl,
+            name: file.name
+          };
+        } catch (err) {
+          console.error(`为文件 ${file.name} 创建URL失败:`, err);
+          return null;
+        }
+      }).filter(Boolean) as {url: string, name: string}[];
+      
+      if (videos.length === 0) {
+        message.error('无法预览任何视频文件');
+        return;
+      }
+      
+      setPreviewVideos(videos);
+      setCurrentPreviewIndex(0);
+      setBatchPreviewVisible(true);
+    } catch (error) {
+      console.error('创建预览URL失败:', error);
+      message.error('无法预览视频');
+    }
+  };
+  
+  // 处理上传
+  const handleUpload = async () => {
+    if (fileList.length === 0) {
+      message.error('请先选择视频文件！');
+      return;
+    }
+    
+    if (generateSpeech && !voiceText) {
+      message.error('请输入语音文本！');
+      return;
+    }
+
+    // 检查处理选项
+    if (!removeSubtitles && !extractVoice && !generateSpeech && !lipSync && !addSubtitles) {
+      message.error('请至少选择一项处理功能！');
+      return;
+    }
+    
+    // 如果添加字幕但没有字幕文本，使用语音文本
+    if (addSubtitles && !text && voiceText) {
+      setText(voiceText);
+    }
+
+    // 开始上传
+    setUploading(true);
+    setIsProcessing(true);
+    setTasks([]);
+    setTaskStatuses({});
+    setProcessingComplete(false);
+    
+    try {
+      const formData = new FormData();
+      
+      // 添加视频文件
+      fileList.forEach(file => {
+        formData.append('videos', file);
+      });
+      
+      // 添加处理选项
+      formData.append('text', text);
+      formData.append('remove_subtitles', removeSubtitles.toString());
+      formData.append('extract_voice', extractVoice.toString());
+      formData.append('generate_speech', generateSpeech.toString());
+      formData.append('lip_sync', lipSync.toString());
+      formData.append('add_subtitles', addSubtitles.toString());
+      formData.append('auto_detect_subtitles', autoDetectSubtitles.toString());
+      formData.append('subtitle_removal_mode', subtitleRemovalMode);
+      
+      // 添加字幕样式
+      if (addSubtitles) {
+        formData.append('subtitle_style', JSON.stringify(subtitleStyle));
+      }
+      
+      if (voiceText) {
+        formData.append('voice_text', voiceText);
+      }
+      
+      // 发送请求
+      const response = await axios.post('/api/v1/douyin/batch-process-videos', formData);
+      
+      if (response.data.success) {
+        message.success('视频上传成功，开始处理...');
+        setTasks(response.data.tasks);
+        
+        // 初始化任务状态
+        const initialStatuses: Record<string, TaskStatus> = {};
+        response.data.tasks.forEach((task: VideoTask) => {
+          initialStatuses[task.task_id] = {
+            status: 'pending',
+            progress: 0,
+            message: '等待处理...'
+          };
+        });
+        setTaskStatuses(initialStatuses);
+        
+        // 开始轮询任务状态
+        response.data.tasks.forEach((task: VideoTask) => {
+          pollTaskStatus(task.task_id);
+        });
+      } else {
+        message.error('视频上传失败！');
+      }
+    } catch (error) {
+      console.error('上传视频失败', error);
+      message.error('上传视频失败，请重试！');
+    } finally {
+      setUploading(false);
+      setIsProcessing(false);
+    }
+  };
+  
+  // 轮询任务状态
+  const pollTaskStatus = async (taskId: string) => {
+    try {
+      const response = await axios.get(`/api/v1/douyin/process-status/${taskId}`);
+      const status = response.data;
+      
+      setTaskStatuses(prev => ({
+        ...prev,
+        [taskId]: {
+          status: status.status,
+          progress: status.progress || 0,
+          message: status.message || '',
+          result: status.result,
+          error: status.error
+        }
+      }));
+      
+      // 如果任务未完成，继续轮询
+      if (status.status !== 'completed' && status.status !== 'failed') {
+        setTimeout(() => pollTaskStatus(taskId), 2000);
+      } else if (status.status === 'completed') {
+        message.success(`任务 ${taskId} 处理完成！`);
+        setProcessingComplete(true);
+      } else if (status.status === 'failed') {
+        message.error(`任务 ${taskId} 处理失败: ${status.error || '未知错误'}`);
+      }
+    } catch (error) {
+      console.error(`获取任务状态失败: ${taskId}`, error);
+      setTimeout(() => pollTaskStatus(taskId), 5000); // 出错后延长轮询间隔
+    }
+  };
+  
+  // 下载处理后的视频
+  const handleDownload = (taskId: string) => {
+    window.open(`/api/v1/douyin/processed-video/${taskId}`, '_blank');
+  };
+  
+  // 预览处理后的视频
+  const handlePreview = (taskId: string, filename: string) => {
+    setTaskPreviewUrl(`/api/v1/douyin/video/${taskId}`);
+    setTaskPreviewTitle(filename);
+    setTaskPreviewVisible(true);
+  };
+  
+  // 关闭任务视频预览
+  const handleTaskPreviewClose = () => {
+    setTaskPreviewVisible(false);
+    setTaskPreviewUrl('');
+  };
+  
+  // 渲染任务列表
+  const renderTasks = () => {
+    if (tasks.length === 0) {
+      return (
+        <Empty 
+          image={Empty.PRESENTED_IMAGE_SIMPLE} 
+          description="暂无处理任务"
+          style={{ margin: '40px 0' }}
+        />
+      );
+    }
+
+    return (
+      <div className="task-list">
+        <Title level={4}>处理任务</Title>
+        {tasks.map(task => {
+          const status = taskStatuses[task.task_id] || {
+            status: 'pending',
+            progress: 0,
+            message: '等待处理...'
+          };
+          
+          // 状态图标
+          let statusIcon;
+          let statusColor;
+          
+          switch(status.status) {
+            case 'pending':
+              statusIcon = <ClockCircleOutlined />;
+              statusColor = 'default';
+              break;
+            case 'running':
+              statusIcon = <SyncOutlined spin />;
+              statusColor = 'processing';
+              break;
+            case 'completed':
+              statusIcon = <CheckCircleOutlined />;
+              statusColor = 'success';
+              break;
+            case 'failed':
+              statusIcon = <ExclamationCircleOutlined />;
+              statusColor = 'error';
+              break;
+            default:
+              statusIcon = <InfoCircleOutlined />;
+              statusColor = 'default';
+          }
+          
+          return (
+            <Card 
+              key={task.task_id} 
+              style={{ marginBottom: 16 }}
+              title={
+                <Space>
+                  <span>{task.original_filename}</span>
+                  <Tag color={statusColor} icon={statusIcon}>
+                    {status.status === 'pending' ? '等待处理' : 
+                     status.status === 'running' ? '处理中' : 
+                     status.status === 'completed' ? '处理完成' : '处理失败'}
+                  </Tag>
+                </Space>
+              }
+              extra={
+                status.status === 'completed' ? (
+                  <Space>
+                    <Button 
+                      type="primary" 
+                      icon={<DownloadOutlined />} 
+                      onClick={() => handleDownload(task.task_id)}
+                    >
+                      下载
+                    </Button>
+                    <Button 
+                      icon={<PlayCircleOutlined />} 
+                      onClick={() => handlePreview(task.task_id, task.original_filename)}
+                    >
+                      预览
+                    </Button>
+                  </Space>
+                ) : null
+              }
+              className="task-card"
+            >
+              <div>
+                <Text strong>处理流程: </Text>
+                <Space wrap>
+                  {task.processing_pipeline.map((step, index) => {
+                    let stepName;
+                    let color;
+                    
+                    switch(step) {
+                      case 'subtitle_removal': 
+                        stepName = '字幕擦除';
+                        color = 'blue';
+                        break;
+                      case 'voice_extraction': 
+                        stepName = '音色提取';
+                        color = 'purple';
+                        break;
+                      case 'speech_generation': 
+                        stepName = '语音生成';
+                        color = 'green';
+                        break;
+                      case 'lip_sync': 
+                        stepName = '唇形同步';
+                        color = 'magenta';
+                        break;
+                      case 'add_subtitles': 
+                        stepName = '添加字幕';
+                        color = 'orange';
+                        break;
+                      default: 
+                        stepName = step;
+                        color = 'default';
+                    }
+                    
+                    return (
+                      <React.Fragment key={step}>
+                        <Tag color={color}>{stepName}</Tag>
+                        {index < task.processing_pipeline.length - 1 && (
+                          <span className="pipeline-arrow">→</span>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </Space>
+              </div>
+              
+              {status.message && (
+                <div style={{ marginTop: 12 }}>
+                  <Text strong>消息: </Text>
+                  <Text>{status.message}</Text>
+                </div>
+              )}
+              
+              {status.error && (
+                <div style={{ marginTop: 12 }}>
+                  <Text strong type="danger">错误: </Text>
+                  <Text type="danger">{status.error}</Text>
+                </div>
+              )}
+              
+              {status.status === 'running' && (
+                <Progress 
+                  percent={Math.round(status.progress)} 
+                  status="active" 
+                  style={{ marginTop: 16 }} 
+                  strokeColor={{
+                    '0%': '#108ee9',
+                    '100%': '#87d068',
                   }}
                 />
-                <Typography variant="h6" sx={{ mb: 1, fontWeight: 'medium' }}>
-                  上传中... {uploadProgress}%
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  请耐心等待，视频正在上传
-                </Typography>
-              </>
-            ) : uploadSuccess && videoPreviews.length > 0 ? (
-              <>
-                <CheckCircleIcon 
-                  sx={{ 
-                    fontSize: 48,
-                    color: theme.palette.success.main,
-                    mb: 2
-                  }} 
-                />
-                <Typography variant="h6" sx={{ mb: 1, fontWeight: 'medium' }}>
-                  上传成功
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  已上传 {videoPreviews.length} 个视频文件
-                </Typography>
+              )}
+              
+              {status.status === 'completed' && status.result && status.result.thumbnail_url && (
+                <div style={{ marginTop: 16, textAlign: 'center' }}>
+                  <img 
+                    src={status.result.thumbnail_url} 
+                    alt="视频预览" 
+                    style={{ maxWidth: '100%', maxHeight: 200, borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }} 
+                  />
+                </div>
+              )}
+            </Card>
+          );
+        })}
+      </div>
+    );
+  };
+  
+  return (
+    <div className="ai-video-processor">
+      <Card 
+        title={
+          <Space>
+            <VideoCameraOutlined style={{ color: '#1890ff' }} />
+            <span>AI视频处理</span>
+          </Space>
+        } 
+        style={{ marginBottom: 24, borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}
+        className="processor-card"
+      >
+        <Tabs defaultActiveKey="upload" type="card">
+          <TabPane 
+            tab={
+              <span>
+                <UploadOutlined />
+                上传视频
+              </span>
+            } 
+            key="upload"
+          >
+            <div className="upload-container" style={{ padding: '20px', background: '#f9f9f9', borderRadius: '8px', marginBottom: '20px' }}>
+              <Upload
+                beforeUpload={handleFileChange}
+                onRemove={(file) => {
+                  const index = fileList.indexOf(file as RcFile);
+                  const newFileList = fileList.slice();
+                  newFileList.splice(index, 1);
+                  setFileList(newFileList);
+                }}
+                fileList={fileList.map(file => ({
+                  uid: file.uid,
+                  name: file.name,
+                  status: 'done',
+                  size: file.size,
+                  type: file.type,
+                  percent: 100
+                }))}
+                accept="video/*"
+                multiple
+                disabled={isProcessing}
+                listType="picture"
+                className="upload-list"
+                showUploadList={{
+                  showPreviewIcon: false,
+                  showRemoveIcon: true
+                }}
+              >
                 <Button 
-                  variant="outlined" 
-                  color="primary" 
-                  sx={{ mt: 2 }}
-                  onClick={() => setIsAreaSelectionOpen(true)}
+                  icon={<UploadOutlined />} 
+                  disabled={isProcessing}
+                  size="large"
+                  style={{ height: '60px', width: '100%', borderStyle: 'dashed' }}
                 >
-                  选择字幕区域
+                  <div>选择视频文件</div>
+                  <div style={{ fontSize: '12px', color: '#888' }}>支持多个视频同时上传</div>
                 </Button>
-              </>
-            ) : (
-              <>
-                <CloudUploadIcon 
-                  sx={{ 
-                    fontSize: 48,
-                    color: theme.palette.primary.main,
-                    mb: 2
-                  }} 
-                />
-                <Typography variant="h6" sx={{ mb: 1, fontWeight: 'medium' }}>
-                  点击或拖拽上传视频
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  支持多个视频文件同时上传
-                </Typography>
-              </>
-            )}
-          </Box>
-
-          <TextField
-            fullWidth
-            multiline
-            rows={4}
-            label="AI处理文本"
-            value={text}
-            onChange={handleTextChange}
-            sx={{
-              mb: 3,
-              '& .MuiOutlinedInput-root': {
-                backgroundColor: '#ffffff',
-                borderRadius: 1,
-                boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
-              }
-            }}
-          />
-
-          <FormGroup sx={{ mb: 3 }}>
-            <Box sx={{ 
-              p: 2, 
-              bgcolor: 'background.paper', 
-              borderRadius: 2,
-              boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
-            }}>
-              <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'medium', color: theme.palette.primary.main }}>
-                字幕处理选项
-              </Typography>
-              <Tooltip title="移除视频中已有的字幕">
-                <FormControlLabel
-                  control={
-                    <Checkbox
+              </Upload>
+              
+              {fileList.length > 0 && (
+                <div style={{ marginTop: '16px', textAlign: 'center' }}>
+                  <Button 
+                    type="primary" 
+                    icon={<PlayCircleOutlined />} 
+                    onClick={handleBatchPreview}
+                    size="large"
+                  >
+                    预览所有视频 ({fileList.length})
+                  </Button>
+                  <div style={{ fontSize: '12px', color: '#888', marginTop: '8px' }}>
+                    点击上方按钮可预览所有已选择的视频
+                  </div>
+                </div>
+              )}
+            </div>
+          </TabPane>
+        </Tabs>
+        
+        {/* 批量视频预览模态框 */}
+        <Modal
+          open={batchPreviewVisible}
+          title={
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <PlayCircleOutlined style={{ color: '#1890ff', marginRight: '8px' }} />
+              {previewVideos.length > 0 ? 
+                `预览视频 (${currentPreviewIndex + 1}/${previewVideos.length}): ${previewVideos[currentPreviewIndex]?.name || ''}` : 
+                '预览视频'}
+            </div>
+          }
+          footer={
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <Button 
+                onClick={handlePrevVideo} 
+                disabled={currentPreviewIndex === 0 || previewVideos.length <= 1}
+                icon={<LeftOutlined />}
+                type="default"
+              >
+                上一个
+              </Button>
+              <Space>
+                <span style={{ color: '#888' }}>
+                  {previewVideos.length > 0 ? `${currentPreviewIndex + 1}/${previewVideos.length}` : '0/0'}
+                </span>
+                <Button onClick={handleBatchPreviewClose} type="primary">
+                  关闭预览
+                </Button>
+              </Space>
+              <Button 
+                onClick={handleNextVideo} 
+                disabled={currentPreviewIndex === previewVideos.length - 1 || previewVideos.length <= 1}
+                icon={<RightOutlined />}
+                type="default"
+              >
+                下一个
+              </Button>
+            </div>
+          }
+          onCancel={handleBatchPreviewClose}
+          width={800}
+          centered
+          destroyOnClose={true}
+        >
+          {previewVideos.length > 0 ? (
+            <div style={{ textAlign: 'center' }}>
+              <video
+                controls
+                autoPlay
+                style={{ width: '100%', maxHeight: '70vh', borderRadius: '8px' }}
+                src={previewVideos[currentPreviewIndex]?.url}
+              />
+              <div style={{ marginTop: '12px', color: '#888', fontSize: '12px' }}>
+                提示: 使用键盘左右箭头键可快速切换视频
+              </div>
+            </div>
+          ) : (
+            <Empty description="没有可预览的视频" />
+          )}
+        </Modal>
+        
+        {/* 任务视频预览模态框 */}
+        <Modal
+          open={taskPreviewVisible}
+          title={
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <PlayCircleOutlined style={{ color: '#1890ff', marginRight: '8px' }} />
+              {`预览处理后的视频: ${taskPreviewTitle}`}
+            </div>
+          }
+          footer={
+            <Button onClick={handleTaskPreviewClose} type="primary">
+              关闭预览
+            </Button>
+          }
+          onCancel={handleTaskPreviewClose}
+          width={800}
+          centered
+          destroyOnClose={true}
+        >
+          {taskPreviewUrl ? (
+            <div style={{ textAlign: 'center' }}>
+              <video
+                controls
+                autoPlay
+                style={{ width: '100%', maxHeight: '70vh', borderRadius: '8px' }}
+                src={taskPreviewUrl}
+              />
+              <div style={{ marginTop: '12px', color: '#888', fontSize: '12px' }}>
+                提示: 您可以下载此视频以获得更好的播放体验
+              </div>
+            </div>
+          ) : (
+            <Empty description="无法加载视频" />
+          )}
+        </Modal>
+        
+        <Divider>
+          <Space>
+            <InfoCircleOutlined />
+            处理选项
+          </Space>
+        </Divider>
+        
+        <div className="options-container" style={{ padding: '0 10px' }}>
+          <Row gutter={[24, 24]}>
+            <Col xs={24} md={12}>
+              <Card 
+                title="字幕处理" 
+                size="small" 
+                className="option-card"
+                style={{ height: '100%' }}
+              >
+                <div style={{ marginBottom: 16 }}>
+                  <Space>
+                    <Switch
                       checked={removeSubtitles}
-                      onChange={(e) => setRemoveSubtitles(e.target.checked)}
-                      color="primary"
+                      onChange={(checked) => setRemoveSubtitles(checked)}
+                      disabled={isProcessing}
                     />
-                  }
-                  label="移除原字幕"
-                />
-              </Tooltip>
-              <Tooltip title="生成新的AI字幕">
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={generateSubtitles}
-                      onChange={(e) => setGenerateSubtitles(e.target.checked)}
-                      color="primary"
+                    <span>擦除字幕</span>
+                    <Tooltip title="AI将自动检测并擦除视频中的字幕">
+                      <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                    </Tooltip>
+                  </Space>
+                </div>
+                
+                {removeSubtitles && (
+                  <div style={{ marginLeft: 24 }}>
+                    <div style={{ marginBottom: 12 }}>
+                      <Space>
+                        <Switch
+                          checked={autoDetectSubtitles}
+                          onChange={(checked) => setAutoDetectSubtitles(checked)}
+                          disabled={isProcessing}
+                          size="small"
+                        />
+                        <span>智能检测字幕区域</span>
+                        <Tooltip title="开启后AI将自动检测字幕区域，无需手动指定">
+                          <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                        </Tooltip>
+                      </Space>
+                    </div>
+                    
+                    {!autoDetectSubtitles && (
+                      <div style={{ marginBottom: 12 }}>
+                        <div style={{ marginBottom: 8 }}>
+                          <Text>字幕文本:</Text>
+                          <Tooltip title="输入视频中的字幕文本，帮助AI更准确地识别字幕区域">
+                            <InfoCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                          </Tooltip>
+                        </div>
+                        <TextArea
+                          rows={3}
+                          value={text}
+                          onChange={(e) => setText(e.target.value)}
+                          placeholder="请输入视频中的字幕文本，用于辅助字幕擦除"
+                          disabled={isProcessing}
+                        />
+                      </div>
+                    )}
+                    
+                    <div style={{ marginBottom: 8 }}>
+                      <Text>字幕擦除模式:</Text>
+                      <Tooltip title="选择不同的擦除模式，平衡速度和质量">
+                        <InfoCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                      </Tooltip>
+                    </div>
+                    <Select
+                      value={subtitleRemovalMode}
+                      onChange={(value: string) => setSubtitleRemovalMode(value)}
+                      style={{ width: '100%' }}
+                      disabled={isProcessing}
+                      options={[
+                        { value: 'fast', label: '快速 (速度优先)' },
+                        { value: 'balanced', label: '平衡 (推荐)' },
+                        { value: 'quality', label: '高质量 (效果优先)' }
+                      ]}
                     />
-                  }
-                  label="生成新字幕"
-                />
-              </Tooltip>
-            </Box>
-          </FormGroup>
-
+                  </div>
+                )}
+                
+                <Divider style={{ margin: '16px 0' }} />
+                
+                <div style={{ marginBottom: 16 }}>
+                  <Space>
+                    <Switch
+                      checked={addSubtitles}
+                      onChange={(checked) => setAddSubtitles(checked)}
+                      disabled={isProcessing}
+                    />
+                    <span>添加字幕</span>
+                    <Tooltip title="在视频中添加自定义字幕">
+                      <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                    </Tooltip>
+                  </Space>
+                  {addSubtitles && generateSpeech && (
+                    <div style={{ marginLeft: 24, fontSize: '12px', color: '#1890ff', marginTop: '4px' }}>
+                      <InfoCircleOutlined style={{ marginRight: '4px' }} />
+                      如果未指定字幕文本，将使用语音文本作为字幕
+                    </div>
+                  )}
+                </div>
+                
+                {addSubtitles && (
+                  <div style={{ marginLeft: 24 }}>
+                    <Form layout="vertical">
+                      <Row gutter={16}>
+                        <Col span={12}>
+                          <Form.Item 
+                            label={
+                              <Space>
+                                <span>字体大小</span>
+                                <Tooltip title="设置字幕字体大小">
+                                  <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                                </Tooltip>
+                              </Space>
+                            }
+                          >
+                            <InputNumber
+                              min={12}
+                              max={48}
+                              value={subtitleStyle.font_size}
+                              onChange={(value) => setSubtitleStyle({...subtitleStyle, font_size: value as number})}
+                              disabled={isProcessing}
+                              style={{ width: '100%' }}
+                            />
+                          </Form.Item>
+                        </Col>
+                        
+                        <Col span={12}>
+                          <Form.Item 
+                            label={
+                              <Space>
+                                <span>字体颜色</span>
+                                <Tooltip title="选择字幕字体颜色">
+                                  <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                                </Tooltip>
+                              </Space>
+                            }
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                              <ColorPicker
+                                value={subtitleStyle.font_color}
+                                onChange={(color) => {
+                                  setSubtitleStyle({...subtitleStyle, font_color: color.toHexString()})
+                                }}
+                                disabled={isProcessing}
+                                presets={[
+                                  {
+                                    label: '推荐颜色',
+                                    colors: PRESET_COLORS,
+                                  }
+                                ]}
+                                showText
+                              />
+                            </div>
+                          </Form.Item>
+                        </Col>
+                        
+                        <Col span={12}>
+                          <Form.Item 
+                            label={
+                              <Space>
+                                <span>背景颜色</span>
+                                <Tooltip title="选择字幕背景颜色，可选择透明">
+                                  <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                                </Tooltip>
+                              </Space>
+                            }
+                          >
+                            <Select
+                              value={subtitleStyle.bg_color}
+                              onChange={(value) => setSubtitleStyle({...subtitleStyle, bg_color: value})}
+                              disabled={isProcessing}
+                              style={{ width: '100%' }}
+                              options={[
+                                { value: 'none', label: '无背景' },
+                                { value: 'rgba(0,0,0,0.5)', label: '半透明黑' },
+                                { value: 'rgba(0,0,0,0.7)', label: '深黑' },
+                                { value: 'rgba(0,0,255,0.3)', label: '半透明蓝' },
+                                { value: 'rgba(255,0,0,0.3)', label: '半透明红' }
+                              ]}
+                            />
+                          </Form.Item>
+                        </Col>
+                        
+                        <Col span={12}>
+                          <Form.Item 
+                            label={
+                              <Space>
+                                <span>位置</span>
+                                <Tooltip title="设置字幕在视频中的位置">
+                                  <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                                </Tooltip>
+                              </Space>
+                            }
+                          >
+                            <RadioGroup
+                              value={subtitleStyle.position}
+                              onChange={(e) => setSubtitleStyle({...subtitleStyle, position: e.target.value})}
+                              disabled={isProcessing}
+                              optionType="button"
+                              buttonStyle="solid"
+                              style={{ width: '100%' }}
+                            >
+                              <Radio.Button value="top" style={{ width: '33.3%', textAlign: 'center' }}>顶部</Radio.Button>
+                              <Radio.Button value="middle" style={{ width: '33.3%', textAlign: 'center' }}>中间</Radio.Button>
+                              <Radio.Button value="bottom" style={{ width: '33.3%', textAlign: 'center' }}>底部</Radio.Button>
+                            </RadioGroup>
+                          </Form.Item>
+                        </Col>
+                        
+                        <Col span={12}>
+                          <Form.Item 
+                            label={
+                              <Space>
+                                <span>对齐方式</span>
+                                <Tooltip title="设置字幕的对齐方式">
+                                  <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                                </Tooltip>
+                              </Space>
+                            }
+                          >
+                            <RadioGroup
+                              value={subtitleStyle.align}
+                              onChange={(e) => setSubtitleStyle({...subtitleStyle, align: e.target.value})}
+                              disabled={isProcessing}
+                              optionType="button"
+                              buttonStyle="solid"
+                              style={{ width: '100%' }}
+                            >
+                              <Radio.Button value="left" style={{ width: '33.3%', textAlign: 'center' }}>左对齐</Radio.Button>
+                              <Radio.Button value="center" style={{ width: '33.3%', textAlign: 'center' }}>居中</Radio.Button>
+                              <Radio.Button value="right" style={{ width: '33.3%', textAlign: 'center' }}>右对齐</Radio.Button>
+                            </RadioGroup>
+                          </Form.Item>
+                        </Col>
+                      </Row>
+                    </Form>
+                  </div>
+                )}
+              </Card>
+            </Col>
+            
+            <Col xs={24} md={12}>
+              <Card 
+                title="音频处理" 
+                size="small" 
+                className="option-card"
+                style={{ height: '100%' }}
+              >
+                <div style={{ marginBottom: 16 }}>
+                  <Space>
+                    <Switch
+                      checked={extractVoice}
+                      onChange={(checked) => setExtractVoice(checked)}
+                      disabled={isProcessing}
+                    />
+                    <span>提取音色</span>
+                    <Tooltip title="从视频中提取人物音色，用于后续语音合成">
+                      <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                    </Tooltip>
+                  </Space>
+                </div>
+                
+                <div style={{ marginBottom: 16 }}>
+                  <Space>
+                    <Switch
+                      checked={generateSpeech}
+                      onChange={(checked) => {
+                        setGenerateSpeech(checked);
+                        if (checked && !extractVoice) {
+                          setExtractVoice(true);
+                        }
+                      }}
+                      disabled={isProcessing}
+                    />
+                    <span>生成语音</span>
+                    <Tooltip title="使用提取的音色生成新的语音">
+                      <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                    </Tooltip>
+                  </Space>
+                </div>
+                
+                {generateSpeech && (
+                  <div style={{ marginLeft: 24, marginBottom: 16 }}>
+                    <div style={{ marginBottom: 8 }}>
+                      <Text strong>语音文本: <span style={{ color: '#ff4d4f' }}>*</span></Text>
+                      <Tooltip title="输入要生成的语音文本（必填）">
+                        <InfoCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                      </Tooltip>
+                    </div>
+                    <TextArea
+                      rows={4}
+                      value={voiceText}
+                      onChange={(e) => setVoiceText(e.target.value)}
+                      placeholder="请在此输入要生成的语音文本，这将用于语音合成和唇形同步"
+                      disabled={isProcessing}
+                      style={{ borderColor: !voiceText ? '#ff4d4f' : undefined }}
+                      status={!voiceText ? 'error' : undefined}
+                    />
+                    {!voiceText && (
+                      <div style={{ color: '#ff4d4f', fontSize: '12px', marginTop: '4px' }}>
+                        请输入语音文本，这是生成语音和唇形同步所必需的
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                <div style={{ marginBottom: 16 }}>
+                  <Space>
+                    <Switch
+                      checked={lipSync}
+                      onChange={(checked) => {
+                        setLipSync(checked);
+                        if (checked) {
+                          if (!removeSubtitles) {
+                            setRemoveSubtitles(true);
+                          }
+                          if (!generateSpeech) {
+                            setGenerateSpeech(true);
+                          }
+                          if (!extractVoice) {
+                            setExtractVoice(true);
+                          }
+                        }
+                      }}
+                      disabled={isProcessing}
+                    />
+                    <span>唇形同步</span>
+                    <Tooltip title="使生成的语音与视频中人物的唇形同步">
+                      <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                    </Tooltip>
+                  </Space>
+                </div>
+                
+                {lipSync && (
+                  <div style={{ marginLeft: 24 }}>
+                    <Alert
+                      message="唇形同步需要同时开启字幕擦除、音色提取和语音生成"
+                      type="info"
+                      showIcon
+                      style={{ marginBottom: 16 }}
+                    />
+                  </div>
+                )}
+              </Card>
+            </Col>
+          </Row>
+        </div>
+        
+        <div style={{ marginTop: 24, textAlign: 'center' }}>
           <Button
-            variant="contained"
-            onClick={handleSubmit}
-            disabled={isProcessing || !selectedFiles}
-            sx={{
-              background: 'linear-gradient(45deg, #3f51b5 30%, #757de8 90%)',
-              boxShadow: '0 3px 5px 2px rgba(63, 81, 181, .3)',
-              transition: 'transform 0.3s',
-              '&:hover': {
-                transform: 'translateY(-2px)',
-              }
-            }}
+            type="primary"
+            onClick={handleUpload}
+            disabled={fileList.length === 0 || isProcessing}
+            loading={isProcessing}
+            icon={<VideoCameraOutlined />}
+            size="large"
+            style={{ height: '48px', width: '200px', fontSize: '16px' }}
           >
             {isProcessing ? '处理中...' : '开始处理'}
           </Button>
-        </CardContent>
+        </div>
       </Card>
-
-      {error && (
-        <Zoom in={!!error}>
-          <Alert 
-            severity="error" 
-            sx={{ 
-              mb: 2,
-              boxShadow: '0 2px 10px rgba(244, 67, 54, 0.2)',
-              borderRadius: 2
-            }}
-          >
-            {error}
-          </Alert>
-        </Zoom>
-      )}
-
-      {processingTasks.length > 0 && (
-        <Card 
-          elevation={3} 
-          sx={{ 
-            borderRadius: 3,
-            background: 'linear-gradient(45deg, #e8eaf6 30%, #ffffff 90%)',
-          }}
-        >
-          <CardContent>
-            <Typography 
-              variant="h5" 
-              gutterBottom 
-              sx={{ 
-                fontWeight: 'bold',
-                color: theme.palette.primary.main,
-                mb: 2
-              }}
-            >
-              处理任务
-            </Typography>
-
-            <List>
-              {processingTasks.map((task, index) => (
-                <Fade in={true} key={task.task_id}>
-                  <ListItem
-                    sx={{
-                      bgcolor: 'background.paper',
-                      borderRadius: 2,
-                      mb: 1,
-                      boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
-                      transition: 'transform 0.2s',
-                      '&:hover': {
-                        transform: 'translateX(8px)'
-                      },
-                      flexDirection: 'column',
-                      alignItems: 'flex-start',
-                      padding: 2
-                    }}
-                  >
-                    <Box sx={{ display: 'flex', width: '100%', justifyContent: 'space-between', mb: 1 }}>
-                      <Typography variant="subtitle1" fontWeight="medium">
-                        {task.original_filename}
-                      </Typography>
-                      <Box>
-                        <Chip
-                          size="small"
-                          label={
-                            task.status === 'completed' 
-                              ? (task.result === 'failed' || task.result === 'error' ? '处理失败' : '处理完成') 
-                              : task.status === 'running' 
-                                ? '处理中' 
-                                : task.status === 'pending' 
-                                  ? '等待中'
-                                  : task.status === 'scheduled'
-                                    ? '已调度'
-                                    : task.status
-                          }
-                          color={
-                            task.status === 'completed' 
-                              ? (task.result === 'failed' || task.result === 'error' ? 'error' : 'success')
-                              : task.status === 'running'
-                                ? 'primary'
-                                : 'default'
-                          }
-                          icon={
-                            task.status === 'completed' 
-                              ? (task.result === 'failed' || task.result === 'error' ? <ErrorIcon /> : <CheckCircleIcon />)
-                              : task.status === 'running'
-                                ? <RunningIcon />
-                                : task.status === 'pending'
-                                  ? <PendingIcon />
-                                  : <InfoIcon />
-                          }
-                        />
-                      </Box>
-                    </Box>
-                    
-                    {/* 进度条 */}
-                    <Box sx={{ width: '100%', mb: 1 }}>
-                      <LinearProgress 
-                        variant="determinate" 
-                        value={task.progress || 0}
-                        sx={{
-                          height: 8,
-                          borderRadius: 4,
-                          bgcolor: 'rgba(0, 0, 0, 0.05)',
-                          '& .MuiLinearProgress-bar': {
-                            borderRadius: 4,
-                            bgcolor: task.status === 'completed' 
-                              ? (task.result === 'failed' || task.result === 'error' ? theme.palette.error.main : theme.palette.success.main)
-                              : theme.palette.primary.main
-                          }
-                        }}
-                      />
-                      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-                        进度: {task.progress || 0}%
-                      </Typography>
-                    </Box>
-                    
-                    {/* 任务ID */}
-                    <Typography variant="caption" color="text.secondary">
-                      任务ID: {task.task_id}
-                    </Typography>
-                    
-                    {/* 错误信息 */}
-                    {task.error && (
-                      <Alert severity="error" sx={{ mt: 1, width: '100%' }}>
-                        {task.error}
-                      </Alert>
-                    )}
-                    
-                    {/* 任务结果 */}
-                    {task.status === 'completed' && task.result && typeof task.result === 'object' && (
-                      <Box sx={{ mt: 1, width: '100%' }}>
-                        {task.result.video_url && (
-                          <Button
-                            variant="outlined"
-                            size="small"
-                            startIcon={<DownloadIcon />}
-                            onClick={() => {
-                              const token = localStorage.getItem('token');
-                              if (!token || !task.result || typeof task.result !== 'object' || !task.result.video_url) return;
-                              
-                              // 使用fetch API下载视频
-                              fetch(task.result.video_url, {
-                                headers: {
-                                  'Authorization': `Bearer ${token}`
-                                }
-                              })
-                                .then(response => response.blob())
-                                .then(blob => {
-                                  const url = window.URL.createObjectURL(blob);
-                                  const a = document.createElement('a');
-                                  a.style.display = 'none';
-                                  a.href = url;
-                                  a.download = task.result && typeof task.result === 'object' && task.result.filename 
-                                    ? task.result.filename 
-                                    : `processed_video_${task.task_id}.mp4`;
-                                  document.body.appendChild(a);
-                                  a.click();
-                                  window.URL.revokeObjectURL(url);
-                                  document.body.removeChild(a);
-                                })
-                                .catch(err => {
-                                  console.error('下载视频失败:', err);
-                                });
-                            }}
-                            sx={{ mr: 1 }}
-                          >
-                            下载处理后的视频
-                          </Button>
-                        )}
-                        
-                        {task.result.thumbnail_url && (
-                          <Button
-                            variant="text"
-                            size="small"
-                            startIcon={<VisibilityIcon />}
-                            onClick={() => {
-                              // 在新窗口中打开缩略图
-                              if (task.result && typeof task.result === 'object' && task.result.thumbnail_url) {
-                                window.open(task.result.thumbnail_url, '_blank');
-                              }
-                            }}
-                          >
-                            查看预览
-                          </Button>
-                        )}
-                      </Box>
-                    )}
-                  </ListItem>
-                </Fade>
-              ))}
-            </List>
-          </CardContent>
-        </Card>
-      )}
-
-      <Dialog
-        open={isAreaSelectionOpen}
-        maxWidth="md"
-        fullWidth
-        PaperProps={{
-          sx: {
-            borderRadius: 2,
-            boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
-            overflow: 'hidden'
-          }
-        }}
-        onClose={() => {
-          console.log('对话框关闭事件触发');
-          setIsAreaSelectionOpen(false);
-        }}
-      >
-        <DialogTitle sx={{ 
-          bgcolor: theme.palette.primary.main, 
-          color: 'white',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center'
-        }}>
-          <Typography variant="h6">
-            选择字幕区域 ({currentPreviewIndex + 1}/{videoPreviews.length})
-          </Typography>
-          <IconButton
-            edge="end"
-            color="inherit"
-            onClick={() => {
-              console.log('关闭按钮点击');
-              setIsAreaSelectionOpen(false);
-            }}
-            aria-label="close"
-          >
-            <CloseIcon />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent sx={{ p: 0, position: 'relative' }}>
-          <Box sx={{ 
-            position: 'relative', 
-            width: '100%', 
-            height: '100%',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'center',
-            alignItems: 'center',
-            bgcolor: '#000',
-            overflow: 'hidden',
-            padding: '20px'
-          }}>
-            {videoPreviews.length > 0 ? (
-              <>
-                <Typography color="white" sx={{ mb: 2 }}>
-                  请在预览图上框选需要移除字幕的区域
-                </Typography>
-                
-                {videoPreviews[currentPreviewIndex]?.previewUrl ? (
-                  <>
-                    <Box sx={{ position: 'relative', width: '100%', textAlign: 'center' }}>
-                      <img
-                        ref={imgRef}
-                        src={videoPreviews[currentPreviewIndex]?.previewUrl}
-                        alt={`视频预览 ${currentPreviewIndex + 1}`}
-                        style={{ 
-                          maxWidth: '100%', 
-                          maxHeight: '60vh',
-                          display: 'block',
-                          margin: '0 auto',
-                          objectFit: 'contain'
-                        }}
-                        onLoad={(e) => {
-                          adjustCanvasSize();
-                        }}
-                        onError={(e) => {
-                          // 获取当前图片URL
-                          const currentUrl = imgRef.current?.src || '';
-                          
-                          // 如果当前URL已经是默认预览图，则不再尝试加载
-                          if (currentUrl.includes('default_preview.jpg')) {
-                            // 创建一个简单的内联预览图
-                            try {
-                              const canvas = document.createElement('canvas');
-                              canvas.width = 480;
-                              canvas.height = 270;
-                              const ctx = canvas.getContext('2d');
-                              if (ctx) {
-                                // 绘制灰色背景
-                                ctx.fillStyle = '#f0f0f0';
-                                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                                
-                                // 绘制文字
-                                ctx.fillStyle = '#808080';
-                                ctx.font = '16px Arial';
-                                ctx.textAlign = 'center';
-                                ctx.textBaseline = 'middle';
-                                ctx.fillText('预览图加载失败', canvas.width / 2, canvas.height / 2);
-                                
-                                // 转换为data URL
-                                const dataUrl = canvas.toDataURL('image/jpeg');
-                                
-                                if (imgRef.current) {
-                                  imgRef.current.src = dataUrl;
-                                }
-                                
-                                // 更新预览数组
-                                setVideoPreviews(prev => {
-                                  const newPreviews = [...prev];
-                                  if (newPreviews[currentPreviewIndex]) {
-                                    newPreviews[currentPreviewIndex] = {
-                                      ...newPreviews[currentPreviewIndex],
-                                      previewUrl: dataUrl
-                                    };
-                                  }
-                                  return newPreviews;
-                                });
-                              }
-                            } catch (error) {
-                              console.error('创建内联预览图失败:', error);
-                            }
-                            
-                            return;
-                          }
-                          
-                          // 使用默认预览图
-                          const defaultPreviewUrl = buildFullUrl('/static/previews/default_preview.jpg');
-                          
-                          if (imgRef.current) {
-                            imgRef.current.src = defaultPreviewUrl;
-                          }
-                          
-                          // 更新预览数组
-                          setVideoPreviews(prev => {
-                            const newPreviews = [...prev];
-                            if (newPreviews[currentPreviewIndex]) {
-                              newPreviews[currentPreviewIndex] = {
-                                ...newPreviews[currentPreviewIndex],
-                                previewUrl: defaultPreviewUrl
-                              };
-                            }
-                            return newPreviews;
-                          });
-                        }}
-                      />
-                      <canvas
-                        ref={canvasRef}
-                        onMouseDown={handleCanvasMouseDown}
-                        onMouseMove={handleCanvasMouseMove}
-                        onMouseUp={handleCanvasMouseUp}
-                        style={{
-                          position: 'absolute',
-                          top: '0',
-                          left: '50%',
-                          transform: 'translateX(-50%)',
-                          cursor: 'crosshair',
-                          width: imgRef.current?.offsetWidth || '100%',
-                          height: imgRef.current?.offsetHeight || '100%',
-                          pointerEvents: 'auto'
-                        }}
-                      />
-                      
-                      {/* 刷新预览图按钮 */}
-                      <Button
-                        variant="contained"
-                        color="primary"
-                        size="small"
-                        sx={{ 
-                          position: 'absolute', 
-                          top: 10, 
-                          right: 10,
-                          opacity: 0.8,
-                          '&:hover': {
-                            opacity: 1
-                          }
-                        }}
-                        onClick={() => {
-                          if (imgRef.current) {
-                            // 构造一个带有时间戳的URL，强制刷新
-                            const currentUrl = videoPreviews[currentPreviewIndex]?.previewUrl;
-                            const refreshUrl = currentUrl.includes('?') 
-                              ? `${currentUrl}&t=${Date.now()}` 
-                              : `${currentUrl}?t=${Date.now()}`;
-                            
-                            console.log('刷新预览图:', refreshUrl);
-                            
-                            // 更新预览数组
-                            setVideoPreviews(prev => {
-                              const updated = [...prev];
-                              if (updated[currentPreviewIndex]) {
-                                updated[currentPreviewIndex] = {
-                                  ...updated[currentPreviewIndex],
-                                  previewUrl: refreshUrl
-                                };
-                              }
-                              return updated;
-                            });
-                            
-                            // 直接设置图片源
-                            imgRef.current.src = refreshUrl;
-                          }
-                        }}
-                      >
-                        刷新预览
-                      </Button>
-                    </Box>
-                    <Typography color="white" sx={{ mt: 2 }}>
-                      提示：如果预览图不清晰，您仍可以大致框选字幕区域
-                    </Typography>
-                  </>
-                ) : (
-                  <Typography color="error">
-                    预览图加载失败，请重试
-                  </Typography>
-                )}
-              </>
-            ) : (
-              <Typography color="white">没有可用的预览图</Typography>
-            )}
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button
-            onClick={handlePrevVideo}
-            disabled={currentPreviewIndex === 0}
-            startIcon={<NavigateBeforeIcon />}
-          >
-            上一个
-          </Button>
-          <Button
-            onClick={() => {
-              const newPreviews = [...videoPreviews];
-              newPreviews[currentPreviewIndex] = {
-                ...newPreviews[currentPreviewIndex],
-                selectedArea: undefined
-              };
-              setVideoPreviews(newPreviews);
-              
-              if (canvasRef.current) {
-                const ctx = canvasRef.current.getContext('2d');
-                if (ctx) {
-                  ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-                }
-              }
-            }}
-            color="secondary"
-          >
-            重置选择
-          </Button>
-          <Button
-            onClick={handleNextVideo}
-            color="primary"
-            endIcon={<NavigateNextIcon />}
-          >
-            {currentPreviewIndex === videoPreviews.length - 1 ? '完成' : '下一个'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Box>
+      
+      {renderTasks()}
+      
+      <style>{`
+        .processor-card .ant-card-head {
+          background-color: #f0f5ff;
+          border-bottom: 1px solid #d6e4ff;
+        }
+        
+        .task-card .ant-card-head {
+          background-color: #f9f9f9;
+        }
+        
+        .option-card .ant-card-head {
+          background-color: #f5f5f5;
+        }
+        
+        .pipeline-arrow {
+          color: #999;
+          margin: 0 4px;
+        }
+        
+        .upload-list .ant-upload-list-item {
+          border-radius: 4px;
+          margin-bottom: 8px;
+        }
+      `}</style>
+    </div>
   );
 };
 

@@ -676,20 +676,68 @@ class SubtitleRemovalService:
                 # text_areas = self._extract_text_areas(result)
                 # logger.info(f"检测到 {len(text_areas)} 个文字区域")
                 logger.warning("Auto detection is currently not available")
-                pass
+                text_areas = []
+            else:
+                text_areas = []
 
             model = self.models[mode]
             logger.info(f"使用模型 {model} 移除字幕")
 
-            # 实际的字幕移除处理
-            if model == "LaMa":
-                await self._process_with_lama(
-                    input_path, output_path, selected_area or text_areas
-                )
-            elif model == "SD-Inpainting":
-                await self._process_with_sd(
-                    input_path, output_path, selected_area or text_areas
-                )
+            # 检查是否为视频文件
+            is_video = self._is_video_file(input_path)
+
+            # 如果是视频文件，使用视频处理方法
+            if is_video:
+                logger.info(f"检测到视频文件，使用视频处理方法")
+
+                # 将selected_area转换为列表格式
+                mask_areas = [selected_area] if selected_area else []
+
+                # 根据模型类型选择处理方法
+                if model == "LaMa":
+                    return await self._process_video_with_replicate(
+                        input_path,
+                        output_path,
+                        mask_areas,
+                        "LaMa",
+                        prompt="",
+                        negative_prompt="",
+                        progress_callback=progress_callback,
+                    )
+                elif model == "SD-Inpainting":
+                    return await self._process_video_with_replicate(
+                        input_path,
+                        output_path,
+                        mask_areas,
+                        "SD-Inpainting",
+                        prompt="natural background, seamless, high quality",
+                        negative_prompt="text, words, letters, watermark, artifacts, blurry, low quality",
+                        progress_callback=progress_callback,
+                    )
+                else:
+                    logger.warning(f"不支持的模型类型: {model}，使用SD-Inpainting")
+                    return await self._process_video_with_replicate(
+                        input_path,
+                        output_path,
+                        mask_areas,
+                        "SD-Inpainting",
+                        prompt="natural background, seamless, high quality",
+                        negative_prompt="text, words, letters, watermark, artifacts, blurry, low quality",
+                        progress_callback=progress_callback,
+                    )
+            else:
+                # 如果是图像文件，使用图像处理方法
+                logger.info(f"检测到图像文件，使用图像处理方法")
+
+                # 实际的字幕移除处理
+                if model == "LaMa":
+                    await self._process_with_lama(
+                        input_path, output_path, selected_area or text_areas
+                    )
+                elif model == "SD-Inpainting":
+                    await self._process_with_sd(
+                        input_path, output_path, selected_area or text_areas
+                    )
 
             return True
         except Exception as e:
@@ -709,6 +757,565 @@ class SubtitleRemovalService:
                 }
             )
         return text_areas
+
+    async def _process_with_lama(
+        self, input_path: str, output_path: str, mask_areas: list
+    ):
+        """
+        使用LaMa (Large Mask Inpainting)算法处理图像，移除字幕区域
+
+        Args:
+            input_path: 输入图像路径
+            output_path: 输出图像路径
+            mask_areas: 字幕区域列表，每个区域是一个包含x, y, width, height的字典
+        """
+        try:
+            import numpy as np
+            import cv2
+            import torch
+            from PIL import Image
+            import requests
+            import io
+            import os
+            import tempfile
+
+            logger.info(f"使用LaMa算法处理图像: {input_path}")
+
+            # 读取输入图像
+            image = cv2.imread(input_path)
+            if image is None:
+                raise ValueError(f"无法读取图像: {input_path}")
+
+            # 创建掩码图像 (黑色背景，白色为要移除的区域)
+            mask = np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
+
+            # 在掩码上绘制字幕区域
+            for area in mask_areas:
+                x, y = int(area["x"]), int(area["y"])
+                width, height = int(area["width"]), int(area["height"])
+                # 在掩码上绘制白色矩形（表示要移除的区域）
+                cv2.rectangle(mask, (x, y), (x + width, y + height), 255, -1)
+
+            # 保存临时掩码文件
+            temp_mask_path = tempfile.mktemp(suffix=".png")
+            cv2.imwrite(temp_mask_path, mask)
+
+            # 方法1: 使用本地LaMa模型（如果已安装）
+            try:
+                # 尝试导入本地LaMa模型
+                from lama_cleaner.model_manager import ModelManager
+                from lama_cleaner.schema import Config
+
+                logger.info("使用本地LaMa模型进行图像修复")
+
+                # 配置LaMa模型
+                config = Config(
+                    model_name="lama",
+                    device="cuda" if torch.cuda.is_available() else "cpu",
+                    hd_strategy="Original",
+                    crop_enable=False,
+                )
+
+                # 初始化模型管理器
+                model = ModelManager(config)
+
+                # 读取图像和掩码
+                img = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                mask_img = cv2.imread(temp_mask_path, cv2.IMREAD_GRAYSCALE)
+
+                # 使用LaMa模型进行图像修复
+                result = model(img, mask_img)
+
+                # 转换回BGR并保存结果
+                result_bgr = cv2.cvtColor(result, cv2.COLOR_RGB2BGR)
+                cv2.imwrite(output_path, result_bgr)
+
+                logger.info(f"LaMa处理完成，结果保存至: {output_path}")
+
+            except (ImportError, Exception) as e:
+                logger.warning(f"本地LaMa模型加载失败: {str(e)}，尝试使用API服务")
+
+                # 方法2: 使用Replicate API（如果本地模型不可用）
+                try:
+                    # 使用Replicate API进行图像修复
+                    import replicate
+
+                    logger.info("使用Replicate API进行图像修复")
+
+                    # 读取图像和掩码为base64
+                    with open(input_path, "rb") as f:
+                        image_data = f.read()
+
+                    with open(temp_mask_path, "rb") as f:
+                        mask_data = f.read()
+
+                    # 调用Replicate API
+                    output = replicate.run(
+                        "cjwbw/lama:9a637b04c9e15be3d2f9c93f3a618f9d620b2f0a1d8c1a4e2ef2d38b4c695bbd",
+                        input={
+                            "image": image_data,
+                            "mask": mask_data,
+                        },
+                    )
+
+                    # 下载结果图像
+                    response = requests.get(output)
+                    result_img = Image.open(io.BytesIO(response.content))
+                    result_img.save(output_path)
+
+                    logger.info(f"Replicate API处理完成，结果保存至: {output_path}")
+
+                except Exception as e:
+                    logger.warning(
+                        f"Replicate API调用失败: {str(e)}，尝试使用Runway API"
+                    )
+
+                    # 方法3: 使用Runway API（如果Replicate不可用）
+                    try:
+                        import json
+
+                        logger.info("使用Runway API进行图像修复")
+
+                        # Runway API配置
+                        runway_api_key = os.environ.get("RUNWAY_API_KEY", "")
+                        if not runway_api_key:
+                            raise ValueError("未设置RUNWAY_API_KEY环境变量")
+
+                        # 准备API请求
+                        headers = {
+                            "Authorization": f"Bearer {runway_api_key}",
+                            "Content-Type": "application/json",
+                        }
+
+                        # 将图像和掩码编码为base64
+                        import base64
+
+                        with open(input_path, "rb") as f:
+                            image_base64 = base64.b64encode(f.read()).decode("utf-8")
+
+                        with open(temp_mask_path, "rb") as f:
+                            mask_base64 = base64.b64encode(f.read()).decode("utf-8")
+
+                        # 构建请求数据
+                        data = {"image": image_base64, "mask": mask_base64}
+
+                        # 发送请求到Runway API
+                        response = requests.post(
+                            "https://api.runwayml.com/v1/inpainting",
+                            headers=headers,
+                            data=json.dumps(data),
+                        )
+
+                        if response.status_code == 200:
+                            # 解析响应
+                            result = response.json()
+                            result_img_data = base64.b64decode(result["image"])
+
+                            # 保存结果
+                            with open(output_path, "wb") as f:
+                                f.write(result_img_data)
+
+                            logger.info(
+                                f"Runway API处理完成，结果保存至: {output_path}"
+                            )
+                        else:
+                            raise Exception(
+                                f"API请求失败: {response.status_code} - {response.text}"
+                            )
+
+                    except Exception as e:
+                        logger.error(f"所有字幕移除方法都失败: {str(e)}")
+                        # 如果所有方法都失败，简单地复制原图
+                        cv2.imwrite(output_path, image)
+                        logger.warning(f"无法处理图像，已复制原图到: {output_path}")
+
+            # 清理临时文件
+            if os.path.exists(temp_mask_path):
+                os.remove(temp_mask_path)
+
+            return True
+
+        except Exception as e:
+            logger.error(f"LaMa处理失败: {str(e)}")
+            # 确保输出路径有效，即使处理失败
+            if not os.path.exists(output_path) and os.path.exists(input_path):
+                import shutil
+
+                shutil.copy(input_path, output_path)
+            raise
+
+    async def _process_with_sd(
+        self, input_path: str, output_path: str, mask_areas: list
+    ):
+        """
+        使用Stable Diffusion Inpainting模型处理图像，移除字幕区域
+
+        Args:
+            input_path: 输入图像路径
+            output_path: 输出图像路径
+            mask_areas: 字幕区域列表，每个区域是一个包含x, y, width, height的字典
+        """
+        try:
+            import numpy as np
+            import cv2
+            import torch
+            from PIL import Image
+            import requests
+            import io
+            import os
+            import tempfile
+
+            logger.info(f"使用Stable Diffusion Inpainting算法处理图像: {input_path}")
+
+            # 读取输入图像
+            image = cv2.imread(input_path)
+            if image is None:
+                raise ValueError(f"无法读取图像: {input_path}")
+
+            # 创建掩码图像 (黑色背景，白色为要移除的区域)
+            mask = np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
+
+            # 在掩码上绘制字幕区域
+            for area in mask_areas:
+                x, y = int(area["x"]), int(area["y"])
+                width, height = int(area["width"]), int(area["height"])
+                # 在掩码上绘制白色矩形（表示要移除的区域）
+                cv2.rectangle(mask, (x, y), (x + width, y + height), 255, -1)
+
+            # 保存临时文件
+            temp_img_path = tempfile.mktemp(suffix=".png")
+            temp_mask_path = tempfile.mktemp(suffix=".png")
+
+            # 保存图像和掩码
+            cv2.imwrite(temp_img_path, image)
+            cv2.imwrite(temp_mask_path, mask)
+
+            # 方法1: 使用本地Stable Diffusion模型（如果已安装）
+            try:
+                # 尝试导入本地Stable Diffusion模型
+                from diffusers import StableDiffusionInpaintPipeline
+
+                logger.info("使用本地Stable Diffusion模型进行图像修复")
+
+                # 加载模型
+                pipe = StableDiffusionInpaintPipeline.from_pretrained(
+                    "runwayml/stable-diffusion-inpainting",
+                    torch_dtype=(
+                        torch.float16 if torch.cuda.is_available() else torch.float32
+                    ),
+                )
+
+                if torch.cuda.is_available():
+                    pipe = pipe.to("cuda")
+
+                # 读取图像和掩码
+                init_image = Image.open(temp_img_path).convert("RGB")
+                mask_image = Image.open(temp_mask_path).convert("RGB")
+
+                # 使用Stable Diffusion进行图像修复
+                # 提示词设置为空或与图像内容相关的描述，以保持图像风格一致
+                prompt = "background, same style, seamless"
+
+                # 进行推理
+                result = pipe(
+                    prompt=prompt,
+                    image=init_image,
+                    mask_image=mask_image,
+                    guidance_scale=7.5,
+                    num_inference_steps=30,
+                ).images[0]
+
+                # 保存结果
+                result.save(output_path)
+
+                logger.info(f"Stable Diffusion处理完成，结果保存至: {output_path}")
+
+            except (ImportError, Exception) as e:
+                logger.warning(
+                    f"本地Stable Diffusion模型加载失败: {str(e)}，尝试使用API服务"
+                )
+
+                # 方法2: 使用Replicate API（如果本地模型不可用）
+                try:
+                    # 使用Replicate API进行图像修复
+                    import replicate
+
+                    logger.info("使用Replicate API进行图像修复")
+
+                    # 读取图像和掩码
+                    with open(temp_img_path, "rb") as f:
+                        image_data = f.read()
+
+                    with open(temp_mask_path, "rb") as f:
+                        mask_data = f.read()
+
+                    # 调用Replicate API
+                    output = replicate.run(
+                        "stability-ai/stable-diffusion-inpainting:c28b92a7ecd66eee4aefcd8a94eb9e7f6c3805d5f06038165407fb5cb355ba67",
+                        input={
+                            "prompt": "background, same style, seamless",
+                            "image": image_data,
+                            "mask": mask_data,
+                            "num_inference_steps": 30,
+                            "guidance_scale": 7.5,
+                        },
+                    )
+
+                    # 下载结果图像
+                    response = requests.get(output)
+                    result_img = Image.open(io.BytesIO(response.content))
+                    result_img.save(output_path)
+
+                    logger.info(f"Replicate API处理完成，结果保存至: {output_path}")
+
+                except Exception as e:
+                    logger.warning(
+                        f"Replicate API调用失败: {str(e)}，尝试使用Hugging Face API"
+                    )
+
+                    # 方法3: 使用Hugging Face API（如果Replicate不可用）
+                    try:
+                        import json
+
+                        logger.info("使用Hugging Face API进行图像修复")
+
+                        # Hugging Face API配置
+                        hf_api_key = os.environ.get("HF_API_KEY", "")
+                        if not hf_api_key:
+                            raise ValueError("未设置HF_API_KEY环境变量")
+
+                        # 准备API请求
+                        headers = {
+                            "Authorization": f"Bearer {hf_api_key}",
+                            "Content-Type": "application/json",
+                        }
+
+                        # 将图像和掩码编码为base64
+                        import base64
+
+                        with open(temp_img_path, "rb") as f:
+                            image_base64 = base64.b64encode(f.read()).decode("utf-8")
+
+                        with open(temp_mask_path, "rb") as f:
+                            mask_base64 = base64.b64encode(f.read()).decode("utf-8")
+
+                        # 构建请求数据
+                        data = {
+                            "inputs": {
+                                "prompt": "background, same style, seamless",
+                                "image": image_base64,
+                                "mask": mask_base64,
+                                "guidance_scale": 7.5,
+                                "num_inference_steps": 30,
+                            }
+                        }
+
+                        # 发送请求到Hugging Face API
+                        response = requests.post(
+                            "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-inpainting",
+                            headers=headers,
+                            data=json.dumps(data),
+                        )
+
+                        if response.status_code == 200:
+                            # 保存结果
+                            with open(output_path, "wb") as f:
+                                f.write(response.content)
+
+                            logger.info(
+                                f"Hugging Face API处理完成，结果保存至: {output_path}"
+                            )
+                        else:
+                            raise Exception(
+                                f"API请求失败: {response.status_code} - {response.text}"
+                            )
+
+                    except Exception as e:
+                        logger.error(f"所有字幕移除方法都失败: {str(e)}")
+                        # 如果所有方法都失败，简单地复制原图
+                        cv2.imwrite(output_path, image)
+                        logger.warning(f"无法处理图像，已复制原图到: {output_path}")
+
+            # 清理临时文件
+            for temp_file in [temp_img_path, temp_mask_path]:
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Stable Diffusion处理失败: {str(e)}")
+            # 确保输出路径有效，即使处理失败
+            if not os.path.exists(output_path) and os.path.exists(input_path):
+                import shutil
+
+                shutil.copy(input_path, output_path)
+            raise
+
+    async def _process_video_with_replicate(
+        self,
+        input_path: str,
+        output_path: str,
+        mask_areas: list,
+        model_type: str,
+        prompt: str = "",
+        negative_prompt: str = "",
+        progress_callback: callable = None,
+    ):
+        """处理视频文件，逐帧提取、处理和重组"""
+        try:
+            import numpy as np
+            import cv2
+            import os
+            import tempfile
+            import shutil
+            import replicate
+            import requests
+            from PIL import Image
+            import io
+
+            logger.info(f"使用{model_type}模型处理视频: {input_path}")
+
+            # 创建临时目录
+            temp_dir = tempfile.mkdtemp()
+            frames_dir = os.path.join(temp_dir, "frames")
+            processed_dir = os.path.join(temp_dir, "processed")
+            os.makedirs(frames_dir, exist_ok=True)
+            os.makedirs(processed_dir, exist_ok=True)
+
+            # 打开视频文件
+            cap = cv2.VideoCapture(input_path)
+            if not cap.isOpened():
+                raise ValueError(f"无法打开视频文件: {input_path}")
+
+            # 获取视频信息
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+            logger.info(f"视频信息: {width}x{height}, {fps}fps, {total_frames}帧")
+
+            # 提取音频（如果有）
+            audio_path = os.path.join(temp_dir, "audio.aac")
+            has_audio = self._extract_audio(input_path, audio_path)
+
+            # 确保API令牌已设置
+            replicate_api_token = os.environ.get("REPLICATE_API_TOKEN")
+            if not replicate_api_token:
+                raise ValueError("未设置REPLICATE_API_TOKEN环境变量")
+
+            os.environ["REPLICATE_API_TOKEN"] = replicate_api_token
+
+            # 逐帧处理
+            frame_count = 0
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+
+                # 更新进度
+                if progress_callback:
+                    current_progress = int(
+                        30 + (frame_count / total_frames) * 60
+                    )  # 30%-90%的进度
+                    progress_callback(current_progress)
+
+                # 保存帧
+                frame_path = os.path.join(frames_dir, f"frame_{frame_count:06d}.png")
+                cv2.imwrite(frame_path, frame)
+
+                # 创建掩码
+                mask = np.zeros((frame.shape[0], frame.shape[1]), dtype=np.uint8)
+                for area in mask_areas:
+                    if area:  # 确保area不为None
+                        x, y = int(area["x"]), int(area["y"])
+                        width, height = int(area["width"]), int(area["height"])
+                        cv2.rectangle(mask, (x, y), (x + width, y + height), 255, -1)
+
+                mask_path = os.path.join(frames_dir, f"mask_{frame_count:06d}.png")
+                cv2.imwrite(mask_path, mask)
+
+                # 读取图像和掩码
+                with open(frame_path, "rb") as f:
+                    image_data = f.read()
+
+                with open(mask_path, "rb") as f:
+                    mask_data = f.read()
+
+                # 调用Replicate API
+                if model_type == "LaMa":
+                    output = replicate.run(
+                        self.replicate_models["LaMa"],
+                        input={
+                            "image": image_data,
+                            "mask": mask_data,
+                        },
+                    )
+                else:  # model_type == "SD-Inpainting"
+                    output = replicate.run(
+                        self.replicate_models["SD-Inpainting"],
+                        input={
+                            "prompt": prompt,
+                            "negative_prompt": negative_prompt,
+                            "image": image_data,
+                            "mask": mask_data,
+                            "num_inference_steps": 30,
+                            "guidance_scale": 7.5,
+                        },
+                    )
+
+                # 下载结果图像
+                response = requests.get(output)
+                if response.status_code != 200:
+                    raise Exception(f"下载结果图像失败: {response.status_code}")
+
+                # 保存处理后的帧
+                processed_frame_path = os.path.join(
+                    processed_dir, f"frame_{frame_count:06d}.png"
+                )
+                with open(processed_frame_path, "wb") as f:
+                    f.write(response.content)
+
+                frame_count += 1
+                if frame_count % 10 == 0:
+                    logger.info(
+                        f"已处理 {frame_count}/{total_frames} 帧 ({frame_count/total_frames*100:.1f}%)"
+                    )
+
+            cap.release()
+
+            # 更新进度
+            if progress_callback:
+                progress_callback(90)  # 90%进度
+
+            # 将处理后的帧重新组合成视频
+            self._frames_to_video(
+                processed_dir,
+                output_path,
+                fps,
+                width,
+                height,
+                audio_path if has_audio else None,
+            )
+
+            # 更新进度
+            if progress_callback:
+                progress_callback(100)  # 100%进度
+
+            # 清理临时文件
+            shutil.rmtree(temp_dir)
+
+            logger.info(f"视频处理完成，结果保存至: {output_path}")
+            return True
+
+        except Exception as e:
+            logger.error(f"视频处理失败: {str(e)}")
+            # 确保输出路径有效，即使处理失败
+            if not os.path.exists(output_path) and os.path.exists(input_path):
+                shutil.copy(input_path, output_path)
+                logger.warning(f"处理失败，已复制原视频到: {output_path}")
+            raise
 
 
 class EnhancedVoiceService:
@@ -782,6 +1389,7 @@ class VideoProcessor:
         self.voice_service = VoiceCloningService()
         self.lip_sync_service = LipSyncService()
         self.subtitle_service = SubtitleService()
+        self.subtitle_removal_service = SubtitleRemovalService()
 
         # 默认使用云服务处理
         self.processing_mode = ProcessingMode.CLOUD
@@ -845,18 +1453,21 @@ class VideoProcessor:
                 # 检测字幕区域
                 selected_area = options.get("selected_area")
                 auto_detect = options.get("auto_detect", False)
+                # 获取字幕移除模式
+                subtitle_removal_mode = options.get("subtitle_removal_mode", "balanced")
 
                 if progress_callback:
                     progress_callback(30, "正在去除字幕")
 
-                # 使用RunwayML API去除字幕
-                result = await self.runway_service.inpaint_video(
-                    input_video,
-                    output_path,
-                    mask_type="text",
-                    restoration_quality=options.get("quality", "high"),
+                # 使用字幕移除服务
+                # 使用SubtitleRemovalService去除字幕
+                result = await self.subtitle_removal_service.remove_subtitles(
+                    input_path=input_video,
+                    output_path=output_path,
+                    mode=subtitle_removal_mode,
                     selected_area=selected_area,
                     auto_detect=auto_detect,
+                    progress_callback=progress_callback,
                 )
 
                 if progress_callback:

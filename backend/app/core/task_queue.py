@@ -240,9 +240,23 @@ class TaskQueue:
         progress: int = None,
         result: dict = None,
         error: str = None,
+        message: str = None,
+        current_stage: str = None,
         **kwargs,
     ):
-        """更新任务状态"""
+        """
+        更新任务状态
+
+        Args:
+            task_id: 任务ID
+            status: 任务状态
+            progress: 进度值（0-100）
+            result: 结果数据
+            error: 错误信息
+            message: 进度消息
+            current_stage: 当前处理阶段
+            **kwargs: 其他参数
+        """
         task = self.tasks.get(task_id)
         if not task:
             logger.warning(f"尝试更新不存在的任务: {task_id}")
@@ -257,6 +271,14 @@ class TaskQueue:
 
         if progress is not None:
             task.progress = progress
+
+        if message:
+            task.message = message
+
+        if current_stage:
+            if not hasattr(task, "data") or task.data is None:
+                task.data = {}
+            task.data["current_stage"] = current_stage
 
         if result:
             task.result = result
@@ -278,19 +300,49 @@ class TaskQueue:
 
     async def _update_task_in_db(self, task: Task):
         """更新数据库中的任务"""
+        from app.services.task_service import TaskService
+        from app.schemas.task import TaskUpdate
+
         try:
             async with AsyncSessionLocal() as db:
-                task_update = TaskUpdate(
-                    status=task.status,
-                    progress=task.progress,
-                    result=task.result,
-                    error=task.error,
-                    retry_count=task.retry_count,
-                    scheduled_at=task.schedule_time,
-                )
+                # 如果任务有进度和当前阶段信息，使用新的update_task_progress方法
+                if hasattr(task, "progress") and (
+                    hasattr(task, "message")
+                    or (
+                        hasattr(task, "data")
+                        and task.data
+                        and "current_stage" in task.data
+                    )
+                ):
+                    current_stage = (
+                        task.data.get("current_stage")
+                        if hasattr(task, "data") and task.data
+                        else None
+                    )
+                    message = task.message if hasattr(task, "message") else None
+
+                    await TaskService.update_task_progress(
+                        db,
+                        task.task_id,
+                        task.progress,
+                        current_stage=current_stage,
+                        message=message,
+                    )
+
+                # 对于其他更新，使用常规的update_task方法
+                update_data = {
+                    "status": task.status,
+                    "progress": task.progress,
+                    "result": task.result,
+                    "error": task.error,
+                    "data": task.data,
+                    "retry_count": task.retry_count,
+                }
+
+                task_update = TaskUpdate(**update_data)
                 await TaskService.update_task(db, task.task_id, task_update)
         except Exception as e:
-            logger.error(f"更新任务到数据库失败: {e}")
+            logger.error(f"更新任务到数据库失败: {e}", exc_info=True)
 
     async def cleanup_old_tasks(self):
         """定期清理旧任务"""
@@ -600,137 +652,318 @@ class TaskQueue:
 
             # 确保目录存在
             os.makedirs("uploads/processed_videos", exist_ok=True)
+            os.makedirs("uploads/temp", exist_ok=True)
+            os.makedirs("uploads/voices", exist_ok=True)
+            os.makedirs("static/previews", exist_ok=True)
 
+            # 获取任务数据
             text = task.data["text"]
             remove_subtitles = task.data.get("remove_subtitles", True)
             generate_subtitles = task.data.get("generate_subtitles", False)
             selected_area = task.data.get("selected_area")
             auto_detect_subtitles = task.data.get("auto_detect", False)
             user_id = task.data.get("user_id")  # 获取用户ID
+            subtitle_removal_mode = task.data.get("subtitle_removal_mode", "balanced")
+            processing_mode = task.data.get("processing_mode", "cloud")
+
+            # 获取新增的AI视频处理参数
+            extract_voice = task.data.get("extract_voice", False)
+            generate_speech = task.data.get("generate_speech", False)
+            lip_sync = task.data.get("lip_sync", False)
+            add_subtitles = task.data.get("add_subtitles", False)
+            voice_text = task.data.get("voice_text", "")
+            processing_pipeline = task.data.get("processing_pipeline", [])
+            subtitle_style = task.data.get("subtitle_style", {})
 
             logger.info(
-                f"视频任务参数: 原始路径={original_path}, 处理路径={processed_path}, 文本={text}, 移除字幕={remove_subtitles}, 生成字幕={generate_subtitles}"
+                f"视频任务参数: 原始路径={original_path}, 处理路径={processed_path}, "
+                f"文本={text}, 移除字幕={remove_subtitles}, 生成字幕={generate_subtitles}, "
+                f"字幕移除模式={subtitle_removal_mode}, 处理模式={processing_mode}, "
+                f"提取音色={extract_voice}, 生成语音={generate_speech}, 唇形同步={lip_sync}, "
+                f"添加字幕={add_subtitles}, 处理流程={processing_pipeline}"
             )
 
-            # 创建视频处理器实例
-            processor = VideoProcessor()
-            logger.info(f"已创建视频处理器: ID={task.task_id}")
+            # 根据处理流程选择不同的处理方式
+            if processing_pipeline and any(
+                [extract_voice, generate_speech, lip_sync, add_subtitles]
+            ):
+                # 使用新的VideoProcessingService处理
+                from app.core.video_processing_service import VideoProcessingService
 
-            # 定义进度回调函数
-            def progress_callback(progress: float):
-                logger.info(f"视频处理进度: ID={task.task_id}, 进度={int(progress)}%")
-                self.update_task_status(task.task_id, TaskStatus.RUNNING, int(progress))
-
-            # 处理选项
-            options = {
-                "output_path": processed_path,
-                "remove_subtitles": remove_subtitles,
-                "generate_subtitles": generate_subtitles,
-                "selected_area": selected_area,
-                "auto_detect_subtitles": auto_detect_subtitles,
-                "language": "chinese",  # 默认使用中文
-            }
-
-            # 执行视频处理
-            logger.info(f"开始执行视频处理: ID={task.task_id}")
-            success = await processor.process_video(
-                original_path, text, options, progress_callback
-            )
-            logger.info(f"视频处理完成: ID={task.task_id}, 成功={success}")
-
-            # 无论成功还是失败，任务状态都是已完成
-            task.status = TaskStatus.COMPLETED
-
-            if success:
-                # 生成缩略图
-                thumbnail_filename = f"thumbnail_{os.path.basename(processed_path).replace('.mp4', '.jpg')}"
-                thumbnail_path = os.path.join("static/previews", thumbnail_filename)
-
-                # 确保目录存在
-                os.makedirs("static/previews", exist_ok=True)
-
-                try:
-                    # 使用ffmpeg生成缩略图
-                    cmd = [
-                        "ffmpeg",
-                        "-i",
-                        processed_path,
-                        "-ss",
-                        "00:00:01",  # 从视频的第1秒截取
-                        "-vframes",
-                        "1",
-                        "-vf",
-                        "scale=320:-1",  # 缩放到宽度320，高度按比例
-                        thumbnail_path,
-                    ]
-                    subprocess.run(cmd, check=True)
-                    logger.info(f"缩略图生成成功: {thumbnail_path}")
-                except Exception as e:
-                    logger.error(f"生成缩略图失败: {str(e)}")
-                    # 如果缩略图生成失败，使用默认缩略图
-                    thumbnail_path = "static/default_preview.jpg"
-
-                # 生成视频URL和缩略图URL
-                video_filename = os.path.basename(processed_path)
-                video_url = f"/api/v1/douyin/processed-video/{task.task_id}"
-                thumbnail_url = (
-                    f"/api/v1/douyin/processed-video-thumbnail/{task.task_id}"
+                # 创建视频处理服务实例
+                video_service = VideoProcessingService(
+                    base_dir="uploads",
+                    temp_dir="uploads/temp",
+                    output_dir="uploads/processed_videos",
+                    voice_dir="uploads/voices",
                 )
-                logger.info(f"生成视频URL: ID={task.task_id}, URL={video_url}")
 
-                result = {
-                    "processed_path": processed_path,
-                    "thumbnail_path": thumbnail_path,
-                    "removed_subtitles": remove_subtitles,
-                    "generated_subtitles": generate_subtitles,
+                # 定义进度回调函数
+                async def progress_callback(
+                    task_id: str, progress: int, message: str, data: Dict[str, Any]
+                ):
+                    logger.info(
+                        f"视频处理进度: ID={task_id}, 进度={progress}%, 消息={message}"
+                    )
+
+                    # 从数据中提取当前处理阶段
+                    current_stage = data.get("current_stage")
+
+                    self.update_task_status(
+                        task_id,
+                        TaskStatus.RUNNING,
+                        progress,
+                        message=message,
+                        current_stage=current_stage,
+                    )
+
+                # 如果需要添加字幕但没有在处理流程中，添加到处理流程
+                if add_subtitles and "add_subtitles" not in processing_pipeline:
+                    processing_pipeline.append("add_subtitles")
+                    task.data["processing_pipeline"] = processing_pipeline
+
+                # 执行视频处理
+                logger.info(
+                    f"开始执行高级视频处理: ID={task.task_id}, 处理流程={processing_pipeline}"
+                )
+                result = await video_service.process_video(
+                    task_id=task.task_id,
+                    task_data=task.data,
+                    progress_callback=progress_callback,
+                )
+
+                if result["status"] == "completed":
+                    # 处理成功
+                    processed_path = result["output_path"]
+                    thumbnail_path = result.get("preview_path", "")
+
+                    # 如果没有生成预览图，尝试生成
+                    if not thumbnail_path:
+                        thumbnail_filename = f"thumbnail_{os.path.basename(processed_path).replace('.mp4', '.jpg')}"
+                        thumbnail_path = os.path.join(
+                            "static/previews", thumbnail_filename
+                        )
+
+                        try:
+                            # 使用ffmpeg生成缩略图
+                            cmd = [
+                                "ffmpeg",
+                                "-i",
+                                processed_path,
+                                "-ss",
+                                "00:00:01",  # 从视频的第1秒截取
+                                "-vframes",
+                                "1",
+                                "-vf",
+                                "scale=320:-1",  # 缩放到宽度320，高度按比例
+                                thumbnail_path,
+                            ]
+                            subprocess.run(cmd, check=True)
+                            logger.info(f"缩略图生成成功: {thumbnail_path}")
+                        except Exception as e:
+                            logger.error(f"生成缩略图失败: {str(e)}")
+                            # 如果缩略图生成失败，使用默认缩略图
+                            thumbnail_path = "static/default_preview.jpg"
+
+                    # 生成视频URL和缩略图URL
+                    video_filename = os.path.basename(processed_path)
+                    video_url = f"/api/v1/douyin/processed-video/{task.task_id}"
+                    thumbnail_url = (
+                        f"/api/v1/douyin/processed-video-thumbnail/{task.task_id}"
+                    )
+
+                    task_result = {
+                        "processed_path": processed_path,
+                        "thumbnail_path": thumbnail_path,
+                        "removed_subtitles": remove_subtitles,
+                        "generated_subtitles": generate_subtitles,
+                        "selected_area": selected_area,
+                        "video_url": video_url,
+                        "thumbnail_url": thumbnail_url,
+                        "filename": video_filename,
+                        "processing_pipeline": processing_pipeline,
+                        "processing_time": result.get("processing_time", 0),
+                    }
+
+                    self.update_task_status(
+                        task.task_id,
+                        TaskStatus.COMPLETED,
+                        100,
+                        result=task_result,
+                    )
+
+                    # 发送成功通知
+                    await self._send_task_notification(
+                        task,
+                        "视频处理完成",
+                        f"您的视频已成功处理完成，处理流程: {', '.join(processing_pipeline)}。",
+                        "success",
+                        {
+                            "video_url": video_url,
+                            "thumbnail_url": thumbnail_url,
+                        },
+                    )
+
+                    logger.info(f"高级视频处理成功完成: ID={task.task_id}")
+                else:
+                    # 处理失败
+                    error_message = result.get("error", "未知错误")
+                    self.update_task_status(
+                        task.task_id,
+                        TaskStatus.FAILED,
+                        0,
+                        error=f"视频处理失败: {error_message}",
+                    )
+
+                    # 发送失败通知
+                    await self._send_task_notification(
+                        task,
+                        "视频处理失败",
+                        f"您的视频处理失败: {error_message}",
+                        "error",
+                    )
+
+                    logger.error(
+                        f"高级视频处理失败: ID={task.task_id}, 错误={error_message}"
+                    )
+            else:
+                # 使用原有的VideoProcessor处理（仅字幕擦除功能）
+                # 创建视频处理器实例
+                from app.core.ai_services import VideoProcessor
+
+                processor = VideoProcessor()
+                logger.info(f"已创建视频处理器: ID={task.task_id}")
+
+                # 定义进度回调函数
+                def progress_callback(progress: float):
+                    logger.info(
+                        f"视频处理进度: ID={task.task_id}, 进度={int(progress)}%"
+                    )
+                    self.update_task_status(
+                        task.task_id, TaskStatus.RUNNING, int(progress)
+                    )
+
+                # 处理选项
+                options = {
+                    "output_path": processed_path,
+                    "remove_subtitles": remove_subtitles,
+                    "generate_subtitles": generate_subtitles,
                     "selected_area": selected_area,
-                    "video_url": video_url,
-                    "thumbnail_url": thumbnail_url,
-                    "filename": video_filename,
+                    "auto_detect_subtitles": auto_detect_subtitles,
+                    "language": "chinese",  # 默认使用中文
+                    "subtitle_removal_mode": subtitle_removal_mode,  # 添加字幕移除模式
+                    "processing_mode": processing_mode,  # 添加处理模式
                 }
 
-                self.update_task_status(
-                    task.task_id,
-                    TaskStatus.COMPLETED,
-                    100,
-                    result=result,
+                # 执行视频处理
+                logger.info(f"开始执行视频处理: ID={task.task_id}")
+                success = await processor.process_video(
+                    original_path, text, options, progress_callback
                 )
-                logger.info(f"任务状态已更新为已完成: ID={task.task_id}")
+                logger.info(f"视频处理完成: ID={task.task_id}, 成功={success}")
 
-                # 发送成功通知
-                await self._send_task_notification(
-                    task,
-                    "视频处理完成",
-                    f"您的视频处理任务 (ID: {task.task_id}) 已成功完成。您可以在任务详情中查看和下载处理后的视频。",
-                    "success",
-                )
-            else:
-                # 处理失败，但任务状态仍然是已完成
-                logger.error(f"视频处理失败: ID={task.task_id}")
-                self.update_task_status(
-                    task.task_id, TaskStatus.COMPLETED, 100, error="视频处理失败"
-                )
-                logger.info(f"任务状态已更新为已完成（失败）: ID={task.task_id}")
+                # 无论成功还是失败，任务状态都是已完成
+                task.status = TaskStatus.COMPLETED
 
-                # 发送失败通知
-                await self._send_task_notification(
-                    task,
-                    "视频处理失败",
-                    f"您的视频处理任务 (ID: {task.task_id}) 执行失败。请检查任务详情了解更多信息。",
-                    "failed",
-                )
+                if success:
+                    # 生成缩略图
+                    thumbnail_filename = f"thumbnail_{os.path.basename(processed_path).replace('.mp4', '.jpg')}"
+                    thumbnail_path = os.path.join("static/previews", thumbnail_filename)
+
+                    try:
+                        # 使用ffmpeg生成缩略图
+                        cmd = [
+                            "ffmpeg",
+                            "-i",
+                            processed_path,
+                            "-ss",
+                            "00:00:01",  # 从视频的第1秒截取
+                            "-vframes",
+                            "1",
+                            "-vf",
+                            "scale=320:-1",  # 缩放到宽度320，高度按比例
+                            thumbnail_path,
+                        ]
+                        subprocess.run(cmd, check=True)
+                        logger.info(f"缩略图生成成功: {thumbnail_path}")
+                    except Exception as e:
+                        logger.error(f"生成缩略图失败: {str(e)}")
+                        # 如果缩略图生成失败，使用默认缩略图
+                        thumbnail_path = "static/default_preview.jpg"
+
+                    # 生成视频URL和缩略图URL
+                    video_filename = os.path.basename(processed_path)
+                    video_url = f"/api/v1/douyin/processed-video/{task.task_id}"
+                    thumbnail_url = (
+                        f"/api/v1/douyin/processed-video-thumbnail/{task.task_id}"
+                    )
+                    logger.info(f"生成视频URL: ID={task.task_id}, URL={video_url}")
+
+                    result = {
+                        "processed_path": processed_path,
+                        "thumbnail_path": thumbnail_path,
+                        "removed_subtitles": remove_subtitles,
+                        "generated_subtitles": generate_subtitles,
+                        "selected_area": selected_area,
+                        "video_url": video_url,
+                        "thumbnail_url": thumbnail_url,
+                        "filename": video_filename,
+                    }
+
+                    self.update_task_status(
+                        task.task_id,
+                        TaskStatus.COMPLETED,
+                        100,
+                        result=result,
+                    )
+
+                    # 发送成功通知
+                    await self._send_task_notification(
+                        task,
+                        "视频处理完成",
+                        "您的视频已成功处理完成。",
+                        "success",
+                        {
+                            "video_url": video_url,
+                            "thumbnail_url": thumbnail_url,
+                        },
+                    )
+
+                    logger.info(f"视频处理成功完成: ID={task.task_id}")
+                else:
+                    # 处理失败
+                    self.update_task_status(
+                        task.task_id,
+                        TaskStatus.FAILED,
+                        0,
+                        error="视频处理失败",
+                    )
+
+                    # 发送失败通知
+                    await self._send_task_notification(
+                        task,
+                        "视频处理失败",
+                        "您的视频处理失败，请重试或联系管理员。",
+                        "error",
+                    )
+
+                    logger.error(f"视频处理失败: ID={task.task_id}")
+
         except Exception as e:
-            logger.exception(f"视频处理出错: ID={task.task_id}, 错误={str(e)}")
+            logger.exception(f"处理视频任务时出错: ID={task.task_id}, 错误={str(e)}")
             self.update_task_status(
-                task.task_id, TaskStatus.COMPLETED, 100, error=f"视频处理出错: {str(e)}"
+                task.task_id,
+                TaskStatus.FAILED,
+                0,
+                error=f"处理视频任务时出错: {str(e)}",
             )
 
-            # 发送错误通知
+            # 发送失败通知
             await self._send_task_notification(
                 task,
                 "视频处理出错",
-                f"您的视频处理任务 (ID: {task.task_id}) 执行过程中出现错误: {str(e)}。",
-                "failed",
+                f"您的视频处理过程中出现错误: {str(e)}",
+                "error",
             )
 
     async def _send_task_notification(
