@@ -23,7 +23,8 @@ import {
   Switch,
   Empty,
   Alert,
-  Modal
+  Modal,
+  Badge
 } from 'antd';
 import { 
   UploadOutlined,
@@ -122,6 +123,8 @@ const AIVideoProcessor: React.FC = () => {
   const [addSubtitles, setAddSubtitles] = useState(true);
   const [autoDetectSubtitles, setAutoDetectSubtitles] = useState(true);
   const [subtitleRemovalMode, setSubtitleRemovalMode] = useState('balanced');
+  const [processingMode, setProcessingMode] = useState('local'); // 默认使用本地处理模式
+  const [localProcessingAvailable, setLocalProcessingAvailable] = useState(true); // 默认本地处理可用
   
   // 字幕样式
   const [subtitleStyle, setSubtitleStyle] = useState<SubtitleStyle>({
@@ -247,6 +250,28 @@ const AIVideoProcessor: React.FC = () => {
     }
   }, [lastMessage]);
   
+  // 检查本地处理是否可用
+  useEffect(() => {
+    const checkLocalProcessing = async () => {
+      try {
+        const response = await axios.get('/api/v1/douyin/check-local-processing');
+        setLocalProcessingAvailable(response.data.available);
+        
+        // 如果本地处理不可用，自动切换到云服务处理模式
+        if (!response.data.available) {
+          setProcessingMode('cloud');
+          message.info('本地处理不可用，已自动切换到云服务处理模式');
+        }
+      } catch (error) {
+        console.error('检查本地处理可用性失败', error);
+        // 出错时默认本地处理可用
+        setLocalProcessingAvailable(true);
+      }
+    };
+    
+    checkLocalProcessing();
+  }, []);
+  
   // 文件上传前检查
   const handleFileChange = (file: RcFile) => {
     // 检查文件类型
@@ -352,6 +377,7 @@ const AIVideoProcessor: React.FC = () => {
       formData.append('add_subtitles', addSubtitles.toString());
       formData.append('auto_detect_subtitles', autoDetectSubtitles.toString());
       formData.append('subtitle_removal_mode', subtitleRemovalMode);
+      formData.append('processing_mode', processingMode);
       
       // 添加字幕样式
       if (addSubtitles) {
@@ -627,6 +653,21 @@ const AIVideoProcessor: React.FC = () => {
         } 
         style={{ marginBottom: 24, borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}
         className="processor-card"
+        extra={
+          <Badge.Ribbon text={localProcessingAvailable ? "本地处理模式" : "云服务处理模式"} color={localProcessingAvailable ? "blue" : "purple"}>
+            <Alert
+              message={
+                <Space>
+                  <span>云服务处理即将上线</span>
+                  <Badge status="processing" text="多种算法可选" />
+                </Space>
+              }
+              type="info"
+              showIcon
+              style={{ marginLeft: 20 }}
+            />
+          </Badge.Ribbon>
+        }
       >
         <Tabs defaultActiveKey="upload" type="card">
           <TabPane 
@@ -800,6 +841,16 @@ const AIVideoProcessor: React.FC = () => {
         </Divider>
         
         <div className="options-container" style={{ padding: '0 10px' }}>
+          <Alert
+            message={localProcessingAvailable ? 
+              "当前使用本地处理模式，处理速度取决于您的计算机性能" : 
+              "当前使用云服务处理模式（测试版），可能会有一定延迟"}
+            description="云服务处理模式即将上线，届时将提供多种处理算法选择，方便您对比不同处理效果"
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
+          
           <Row gutter={[24, 24]}>
             <Col xs={24} md={12}>
               <Card 

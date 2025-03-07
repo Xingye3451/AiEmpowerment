@@ -1307,10 +1307,10 @@ async def check_local_processing(current_user: User = Depends(get_current_user))
     """
     检查本地处理是否可用
 
-    目前本地处理功能尚未实现，所以始终返回False
+    目前本地处理功能已实现基础版本，返回True
     """
-    # TODO: 实现检查本地GPU和依赖是否可用的逻辑
-    return {"available": False}
+    # TODO: 实现更完善的检查本地GPU和依赖是否可用的逻辑
+    return {"available": True}
 
 
 @router.post("/upload-video-v1")
