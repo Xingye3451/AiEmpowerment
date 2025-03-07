@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -71,6 +71,8 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onNavigate }) =
   const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
   // 通知详情对话框开关
   const [detailOpen, setDetailOpen] = useState(false);
+  // WebSocket连接引用
+  const wsRef = useRef<WebSocket | null>(null);
 
   /**
    * 获取通知列表
@@ -112,6 +114,59 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onNavigate }) =
       console.error('获取通知计数失败:', error);
     }
   };
+
+  // 初始化WebSocket连接
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    // 创建WebSocket连接
+    const wsUrl = `${BASE_URL.replace('http', 'ws')}/ws/notifications?token=${token}`;
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    // 连接打开时的处理
+    ws.onopen = () => {
+      console.log('通知WebSocket连接已建立');
+    };
+
+    // 接收消息时的处理
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        // 如果是新通知
+        if (data.type === 'new_notification') {
+          // 立即更新未读通知数量
+          fetchNotificationCount();
+          
+          // 如果通知菜单是打开的，也更新通知列表
+          if (Boolean(anchorEl)) {
+            fetchNotifications();
+          }
+        }
+      } catch (error) {
+        console.error('处理WebSocket消息失败:', error);
+      }
+    };
+
+    // 连接关闭时的处理
+    ws.onclose = () => {
+      console.log('通知WebSocket连接已关闭');
+    };
+
+    // 连接错误时的处理
+    ws.onerror = (error) => {
+      console.error('通知WebSocket连接错误:', error);
+    };
+
+    // 组件卸载时关闭WebSocket连接
+    return () => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.close();
+      }
+    };
+  }, []);
 
   // 组件挂载时获取未读通知数量，并设置定时更新
   useEffect(() => {
