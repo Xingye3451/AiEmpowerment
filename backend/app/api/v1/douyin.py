@@ -7,6 +7,7 @@ from fastapi import (
     Form,
     Response,
     Request,
+    BackgroundTasks,
 )
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -39,6 +40,9 @@ from app.schemas.user import (
 )
 from app.models.user import User
 from app.core.task_queue import TaskQueue, Task, TaskStatus
+from app.services.ai_service_proxy import ai_service_proxy
+from app.core.config import settings
+import aiofiles
 
 logger = logging.getLogger(__name__)
 
@@ -1371,75 +1375,124 @@ async def debug_tasks(
 
 @router.post("/process-video")
 async def process_video(
-    request: Request,
-    file: UploadFile = File(...),
-    text: str = Form(""),
-    remove_subtitles: bool = Form(False),
-    generate_subtitles: bool = Form(False),
-    current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks,
+    video: UploadFile = File(...),
+    process_type: str = Form(...),  # 'subtitle_removal', 'voice_synthesis', 'lip_sync'
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """
-    处理视频文件
-    - file: 视频文件
-    - text: 要添加的文本
-    - remove_subtitles: 是否移除原视频字幕
-    - generate_subtitles: 是否生成新字幕
-    """
-    from app.services.task_service import TaskService
-    from app.schemas.task import TaskCreate
+    """处理视频"""
+    # 创建上传目录（如果不存在）
+    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    os.makedirs(settings.RESULT_DIR, exist_ok=True)
 
-    # 检查文件类型
-    if not file.filename.lower().endswith((".mp4", ".mov", ".avi", ".mkv")):
-        raise HTTPException(
-            status_code=400,
-            detail="不支持的文件类型，请上传MP4、MOV、AVI或MKV格式的视频",
-        )
+    # 生成唯一文件名
+    file_id = str(uuid.uuid4())
+    original_filename = video.filename
+    file_extension = os.path.splitext(original_filename)[1]
+    upload_filename = f"{file_id}{file_extension}"
+    upload_path = os.path.join(settings.UPLOAD_DIR, upload_filename)
 
-    # 保存上传的文件
-    original_filename = file.filename
-    safe_filename = secure_filename(original_filename)
-    timestamp = int(time.time())
-    unique_filename = f"{timestamp}_{safe_filename}"
-    file_path = os.path.join(UPLOAD_DIR, unique_filename)
+    # 保存上传的视频
+    try:
+        async with aiofiles.open(upload_path, "wb") as out_file:
+            content = await video.read()
+            await out_file.write(content)
+    except Exception as e:
+        logger.error(f"保存视频失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"保存视频失败: {str(e)}")
 
-    # 确保目录存在
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    os.makedirs(PROCESSED_DIR, exist_ok=True)
-    os.makedirs(PREVIEW_DIR, exist_ok=True)
+    # 创建任务记录
+    task_id = str(uuid.uuid4())
 
-    # 写入文件
-    with open(file_path, "wb") as f:
-        content = await file.read()
-        f.write(content)
-
-    # 准备任务数据
-    task_data = {
-        "original_path": file_path,
-        "text": text,
-        "remove_subtitles": remove_subtitles,
-        "generate_subtitles": generate_subtitles,
-        "user_id": current_user.id,
-    }
-
-    # 创建任务
-    task_create = TaskCreate(
-        task_type="video_processing",
-        data=task_data,
+    # 在后台处理视频
+    background_tasks.add_task(
+        process_video_task,
+        task_id=task_id,
         user_id=current_user.id,
-        max_retries=3,
+        process_type=process_type,
+        upload_path=upload_path,
+        original_filename=original_filename,
+        db=db,
     )
 
-    # 保存任务到数据库
-    task = await TaskService.create_task(db, task_create)
+    return {"task_id": task_id, "message": "视频处理任务已创建", "status": "processing"}
 
-    # 添加任务到队列
-    await task_queue.add_task(
-        task_id=task.id, task_type="video_processing", data=task_data, callback=None
-    )
 
+async def process_video_task(
+    task_id: str,
+    user_id: int,
+    process_type: str,
+    upload_path: str,
+    original_filename: str,
+    db: AsyncSession,
+):
+    """后台视频处理任务"""
+    try:
+        # 根据处理类型调用相应的AI服务
+        if process_type == "subtitle_removal":
+            # 调用字幕擦除服务
+            with open(upload_path, "rb") as video_file:
+                result = await ai_service_proxy.call_service(
+                    db=db,
+                    service_type="subtitle_removal",
+                    endpoint="process",
+                    files={"video": (original_filename, video_file, "video/mp4")},
+                )
+        elif process_type == "voice_synthesis":
+            # 调用语音合成服务
+            with open(upload_path, "rb") as video_file:
+                result = await ai_service_proxy.call_service(
+                    db=db,
+                    service_type="voice_synthesis",
+                    endpoint="process",
+                    files={"video": (original_filename, video_file, "video/mp4")},
+                )
+        elif process_type == "lip_sync":
+            # 调用唇形同步服务
+            with open(upload_path, "rb") as video_file:
+                result = await ai_service_proxy.call_service(
+                    db=db,
+                    service_type="lip_sync",
+                    endpoint="process",
+                    files={"video": (original_filename, video_file, "video/mp4")},
+                )
+        else:
+            # 不支持的处理类型
+            logger.error(f"不支持的处理类型: {process_type}")
+            # 更新任务状态为失败
+            # TODO: 更新任务状态
+            return
+
+        # 处理结果
+        if result.get("success"):
+            # 保存处理后的视频
+            result_url = result.get("result_url")
+            # TODO: 更新任务状态为成功
+        else:
+            # 处理失败
+            error_message = result.get("error", "未知错误")
+            logger.error(f"视频处理失败: {error_message}")
+            # TODO: 更新任务状态为失败
+
+    except Exception as e:
+        logger.error(f"视频处理任务异常: {str(e)}")
+        # TODO: 更新任务状态为失败
+
+
+@router.get("/process-status/{task_id}")
+async def get_process_status(
+    task_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取视频处理任务状态"""
+    # TODO: 从数据库获取任务状态
+    # 这里简单返回一个模拟状态
     return {
-        "task_id": task.id,
-        "status": task.status,
-        "message": "视频处理任务已创建",
+        "task_id": task_id,
+        "status": "completed",
+        "progress": 100,
+        "result_url": f"/api/v1/douyin/processed-video/{task_id}",
+        "thumbnail_url": f"/api/v1/douyin/processed-video-thumbnail/{task_id}",
     }

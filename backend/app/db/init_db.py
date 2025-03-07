@@ -28,6 +28,7 @@ from app.models.content_collection import (
     CollectedContent,
     CollectedVideo,
 )
+from app.models.ai_config import AIServiceConfig, SystemConfig
 
 
 async def init_db():
@@ -147,6 +148,114 @@ async def init_comfyui_tables():
         print("ComfyUI tables created successfully.")
 
 
+async def init_ai_config_tables():
+    """初始化AI配置相关的数据库表"""
+    async with engine.begin() as conn:
+        # 创建AI配置相关表
+        await conn.run_sync(
+            Base.metadata.create_all,
+            tables=[
+                AIServiceConfig.__table__,
+                SystemConfig.__table__,
+            ],
+        )
+        print("AI config tables created successfully.")
+
+        # 创建默认系统配置
+        async with AsyncSession(engine) as session:
+            result = await session.execute(select(SystemConfig))
+            system_config = result.scalars().first()
+
+            if not system_config:
+                default_config = SystemConfig()
+                session.add(default_config)
+                await session.commit()
+                print("Default system configuration created successfully")
+            else:
+                print("System configuration already exists")
+
+        # 创建默认服务配置
+        async with AsyncSession(engine) as session:
+            # 检查是否已存在字幕擦除服务配置
+            result = await session.execute(
+                select(AIServiceConfig).where(
+                    AIServiceConfig.service_type == "subtitle_removal"
+                )
+            )
+            subtitle_service = result.scalars().first()
+
+            if not subtitle_service:
+                subtitle_config = AIServiceConfig(
+                    service_type="subtitle_removal",
+                    service_name="字幕擦除服务",
+                    service_url="http://localhost:8001/api/v1",
+                    is_active=True,
+                    default_mode="balanced",
+                    timeout=120,
+                    auto_detect=True,
+                )
+                session.add(subtitle_config)
+                await session.commit()
+                print(
+                    "Default subtitle removal service configuration created successfully"
+                )
+            else:
+                print("Subtitle removal service configuration already exists")
+
+            # 检查是否已存在语音合成服务配置
+            result = await session.execute(
+                select(AIServiceConfig).where(
+                    AIServiceConfig.service_type == "voice_synthesis"
+                )
+            )
+            voice_service = result.scalars().first()
+
+            if not voice_service:
+                voice_config = AIServiceConfig(
+                    service_type="voice_synthesis",
+                    service_name="语音合成服务",
+                    service_url="http://localhost:8002/api/v1",
+                    is_active=True,
+                    default_mode="standard",
+                    timeout=180,
+                    language="zh",
+                    quality="high",
+                )
+                session.add(voice_config)
+                await session.commit()
+                print(
+                    "Default voice synthesis service configuration created successfully"
+                )
+            else:
+                print("Voice synthesis service configuration already exists")
+
+            # 检查是否已存在唇形同步服务配置
+            result = await session.execute(
+                select(AIServiceConfig).where(
+                    AIServiceConfig.service_type == "lip_sync"
+                )
+            )
+            lip_sync_service = result.scalars().first()
+
+            if not lip_sync_service:
+                lip_sync_config = AIServiceConfig(
+                    service_type="lip_sync",
+                    service_name="唇形同步服务",
+                    service_url="http://localhost:8003/api/v1",
+                    is_active=True,
+                    default_mode="standard",
+                    timeout=300,
+                    model_type="wav2lip",
+                    batch_size=8,
+                    smooth=True,
+                )
+                session.add(lip_sync_config)
+                await session.commit()
+                print("Default lip sync service configuration created successfully")
+            else:
+                print("Lip sync service configuration already exists")
+
+
 async def init_all():
     """执行所有初始化步骤"""
     # 1. 确保数据库文件存在
@@ -172,6 +281,9 @@ async def init_all():
 
     # 8. 初始化ComfyUI相关表
     await init_comfyui_tables()
+
+    # 9. 初始化AI配置相关表
+    await init_ai_config_tables()
 
     print("Database initialization completed.")
 

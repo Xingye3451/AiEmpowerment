@@ -633,7 +633,14 @@ const SocialAccountManager: React.FC = () => {
               name="platform"
               value={accountFormData.platform}
               label="平台"
-              onChange={handleAccountFormChange}
+              onChange={(event: SelectChangeEvent<string>) => {
+                handleAccountFormChange({
+                  target: {
+                    name: 'platform',
+                    value: event.target.value
+                  }
+                } as React.ChangeEvent<HTMLInputElement>);
+              }}
             >
               {platforms.map((platform) => (
                 <MenuItem key={platform.id} value={platform.id}>

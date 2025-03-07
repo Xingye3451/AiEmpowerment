@@ -10,12 +10,15 @@ from app.api.api import api_router
 from app.core.config import settings
 from app.core.scheduler import init_scheduler, shutdown_scheduler
 from app.core.task_queue import TaskQueue
-from app.db.database import engine
+from app.db.database import engine, get_db
 from app.db.init_db import init_db, ensure_db_exists
 from app.db.migrations.run_migrations import run_all_migrations
 from app.db.base_class import Base
 from fastapi import status
 from fastapi.exceptions import RequestValidationError, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from app.models.ai_config import AIServiceConfig
 
 # 配置日志
 logging.basicConfig(
@@ -230,6 +233,9 @@ async def startup_event():
     except Exception as e:
         logger.error(f"应用asyncio补丁时出错: {e}")
 
+    # 初始化默认服务配置
+    await init_default_services()
+
 
 # 应用关闭事件
 @app.on_event("shutdown")
@@ -242,3 +248,56 @@ def shutdown_event():
 @app.get("/")
 def root():
     return {"message": "欢迎使用AI赋能内容分发平台API"}
+
+
+# 初始化默认服务配置
+async def init_default_services():
+    """初始化默认AI服务配置"""
+    logger.info("正在初始化默认AI服务配置...")
+
+    db_generator = get_db()
+    db = await anext(db_generator)
+    try:
+        # 检查是否已有服务配置
+        query = select(AIServiceConfig)
+        result = await db.execute(query)
+        services = result.scalars().all()
+
+        if not services:
+            # 创建默认服务配置
+            default_services = [
+                AIServiceConfig(
+                    service_type="subtitle_removal",
+                    service_name="默认字幕擦除服务",
+                    service_url=settings.DEFAULT_SUBTITLE_REMOVAL_URL,
+                    is_active=True,
+                    is_default=True,
+                    priority=0,
+                ),
+                AIServiceConfig(
+                    service_type="voice_synthesis",
+                    service_name="默认语音合成服务",
+                    service_url=settings.DEFAULT_VOICE_SYNTHESIS_URL,
+                    is_active=True,
+                    is_default=True,
+                    priority=0,
+                ),
+                AIServiceConfig(
+                    service_type="lip_sync",
+                    service_name="默认唇形同步服务",
+                    service_url=settings.DEFAULT_LIP_SYNC_URL,
+                    is_active=True,
+                    is_default=True,
+                    priority=0,
+                ),
+            ]
+
+            for service in default_services:
+                db.add(service)
+
+            await db.commit()
+            logger.info(f"已初始化 {len(default_services)} 个默认AI服务配置")
+        else:
+            logger.info(f"已存在 {len(services)} 个AI服务配置，跳过初始化")
+    finally:
+        await db.close()

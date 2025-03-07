@@ -34,6 +34,15 @@ export const ADMIN_API = {
     USER_PASSWORD_RESET: (userId: string) => `${BASE_URL}/admin/users/${userId}/reset-password`,
     DELETE_USER: (userId: string) => `${BASE_URL}/admin/users/${userId}`,
     UPDATE_USER: (userId: string) => `${BASE_URL}/admin/users/${userId}`,
+    SETTINGS: `${BASE_URL}/admin/settings`,
+};
+
+// AI配置管理API路径配置
+export const AI_CONFIG_API = {
+    SERVICES: `${BASE_URL}/ai-config/services`,
+    SERVICE_DETAIL: (serviceId: string) => `${BASE_URL}/ai-config/services/${serviceId}`,
+    SYSTEM: `${BASE_URL}/ai-config/system`,
+    TEST_CONNECTION: `${BASE_URL}/ai-config/test-connection`,
 };
 
 // 内容分发API路径配置

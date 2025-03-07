@@ -10,6 +10,7 @@ from app.api.v1 import (
     scheduled_tasks as scheduled_tasks_v1,
     admin as admin_v1,
     notifications as notifications_v1,
+    ai_config as ai_config_v1,
 )
 
 api_router = APIRouter()
@@ -17,7 +18,7 @@ api_router = APIRouter()
 # 注册v1目录下的路由
 api_router.include_router(auth_v1.router, prefix="/auth", tags=["认证"])
 api_router.include_router(users_v1.router, prefix="/users", tags=["用户"])
-api_router.include_router(douyin_v1.router, prefix="/douyin", tags=["抖音管理"])
+api_router.include_router(douyin_v1.router, prefix="/douyin", tags=["抖音"])
 api_router.include_router(
     social_accounts_v1.router, prefix="/social", tags=["社交账号"]
 )
@@ -31,3 +32,4 @@ api_router.include_router(admin_v1.router, prefix="/admin", tags=["管理员"])
 api_router.include_router(
     notifications_v1.router, prefix="/notifications", tags=["通知"]
 )
+api_router.include_router(ai_config_v1.router, prefix="/ai-config", tags=["AI配置"])

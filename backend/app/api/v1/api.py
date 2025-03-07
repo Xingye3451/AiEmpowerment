@@ -8,7 +8,7 @@ from app.api.v1 import (
     scheduled_tasks,
     admin,
     notifications,
-    subtitle_removal,
+    ai_config,
 )
 
 api_router = APIRouter()
@@ -25,6 +25,4 @@ api_router.include_router(
 )
 api_router.include_router(admin.router, prefix="/admin", tags=["管理员"])
 api_router.include_router(notifications.router, prefix="/notifications", tags=["通知"])
-api_router.include_router(
-    subtitle_removal.router, prefix="/subtitle-removal", tags=["字幕移除"]
-)
+api_router.include_router(ai_config.router, prefix="/ai-config", tags=["AI配置"])

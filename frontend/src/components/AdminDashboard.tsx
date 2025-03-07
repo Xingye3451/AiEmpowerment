@@ -49,7 +49,9 @@ import { ADMIN_API } from '../config/api';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import PeopleIcon from '@mui/icons-material/People';
 import SettingsIcon from '@mui/icons-material/Settings';
+import VideoSettingsIcon from '@mui/icons-material/VideoSettings';
 import Logo from './Logo';
+import AIConfigTab from './AIConfigTab';
 
 interface User {
   id: string;
@@ -264,7 +266,7 @@ const AdminDashboard = () => {
     const fetchSettings = async () => {
       try {
         setLoading(true);
-        const response = await axios.get('/api/admin/settings');
+        const response = await axios.get(ADMIN_API.SETTINGS);
         setSettings(response.data);
       } catch (error) {
         console.error('获取系统设置失败:', error);
@@ -288,7 +290,7 @@ const AdminDashboard = () => {
         setError('');
         setSuccess('');
         
-        await axios.post('/api/admin/settings', settings);
+        await axios.post(ADMIN_API.SETTINGS, settings);
         setSuccess('设置保存成功');
       } catch (error) {
         console.error('保存设置失败:', error);
@@ -520,6 +522,12 @@ const AdminDashboard = () => {
                 label="系统设置" 
                 sx={{ mb: 1 }}
               />
+              <Tab 
+                icon={<VideoSettingsIcon />} 
+                iconPosition="start" 
+                label="AI配置管理" 
+                sx={{ mb: 1 }}
+              />
             </Tabs>
           </Box>
 
@@ -553,6 +561,10 @@ const AdminDashboard = () => {
             )}
 
             <Box sx={{ mt: 2 }}>
+              {currentTab === 0 && (
+                <Typography variant="h6">仪表盘内容</Typography>
+              )}
+              
               {currentTab === 1 && (
                 <>
                   <Box sx={{ mb: 3 }}>
@@ -729,6 +741,17 @@ const AdminDashboard = () => {
                       </TableBody>
                     </Table>
                   </TableContainer>
+                </>
+              )}
+              
+              {currentTab === 2 && (
+                <SystemSettings />
+              )}
+              
+              {currentTab === 3 && (
+                <>
+                  <Typography variant="h6" gutterBottom>AI视频处理配置管理</Typography>
+                  <AIConfigTab />
                 </>
               )}
             </Box>

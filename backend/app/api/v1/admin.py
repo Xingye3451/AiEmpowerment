@@ -6,6 +6,8 @@ from app.core.deps import get_db, get_current_admin
 from app.models.user import User
 from app.schemas.user import UserCreate, User as UserSchema, UserUpdate
 from app.core.security import get_password_hash, verify_password
+from app.models.ai_config import SystemConfig
+from app.schemas.ai_config import SystemConfigUpdate
 
 router = APIRouter()
 
@@ -202,3 +204,78 @@ async def change_admin_password(
     current_admin.hashed_password = get_password_hash(password_data.get("new_password"))
     await db.commit()
     return {"message": "密码修改成功"}
+
+
+@router.get("/settings", response_model=Dict[str, Any])
+async def get_admin_settings(
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    """获取系统设置（仅管理员）"""
+    query = select(SystemConfig)
+    result = await db.execute(query)
+    config = result.scalar_one_or_none()
+
+    if not config:
+        # 如果没有配置，创建默认配置
+        config = SystemConfig()
+        db.add(config)
+        await db.commit()
+        await db.refresh(config)
+
+    return {
+        "id": config.id,
+        "queue_size": config.queue_size,
+        "upload_dir": config.upload_dir,
+        "result_dir": config.result_dir,
+        "temp_dir": config.temp_dir,
+        "auto_clean": config.auto_clean,
+        "retention_days": config.retention_days,
+        "notify_completion": config.notify_completion,
+        "notify_error": config.notify_error,
+        "log_level": config.log_level,
+        "created_at": config.created_at,
+        "updated_at": config.updated_at,
+    }
+
+
+@router.post("/settings", response_model=Dict[str, Any])
+async def update_admin_settings(
+    settings: SystemConfigUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    """更新系统设置（仅管理员）"""
+    query = select(SystemConfig)
+    result = await db.execute(query)
+    config = result.scalar_one_or_none()
+
+    if not config:
+        # 如果没有配置，创建新配置
+        config = SystemConfig(**settings.dict(exclude_unset=True))
+        db.add(config)
+    else:
+        # 更新现有配置
+        update_data = settings.dict(exclude_unset=True)
+        for key, value in update_data.items():
+            setattr(config, key, value)
+
+        db.add(config)
+
+    await db.commit()
+    await db.refresh(config)
+
+    return {
+        "id": config.id,
+        "queue_size": config.queue_size,
+        "upload_dir": config.upload_dir,
+        "result_dir": config.result_dir,
+        "temp_dir": config.temp_dir,
+        "auto_clean": config.auto_clean,
+        "retention_days": config.retention_days,
+        "notify_completion": config.notify_completion,
+        "notify_error": config.notify_error,
+        "log_level": config.log_level,
+        "created_at": config.created_at,
+        "updated_at": config.updated_at,
+    }

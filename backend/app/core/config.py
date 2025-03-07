@@ -1,9 +1,11 @@
 from pydantic_settings import BaseSettings
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 import os
 from functools import lru_cache
 import yaml
 import logging
+import secrets
+from pydantic import AnyHttpUrl, PostgresDsn
 
 logger = logging.getLogger(__name__)
 
@@ -13,14 +15,17 @@ class Settings(BaseSettings):
     config_file: str = os.getenv("CONFIG_FILE", "config/default.yaml")
 
     # 基础配置
-    PROJECT_NAME: str = "AI视频处理平台"
+    PROJECT_NAME: str = "AI赋能平台"
+    PROJECT_DESCRIPTION: str = "AI赋能内容分发平台"
+    PROJECT_VERSION: str = "0.1.0"
     API_V1_STR: str = "/api/v1"
 
     # 安全配置
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "your-secret-key-here")
+    SECRET_KEY: str = secrets.token_urlsafe(32)
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 8  # 8小时
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7天
     ADMIN_TOKEN_EXPIRE_MINUTES: int = 60  # 管理员token默认有效期1小时
+    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
     # 数据库配置
     DB_TYPE: str = "sqlite"  # 默认使用SQLite
@@ -37,13 +42,16 @@ class Settings(BaseSettings):
     MYSQL_CHARSET: str = "utf8mb4"
 
     # 数据库URL（会根据DB_TYPE自动生成）
-    DATABASE_URL: str = ""
+    DATABASE_URL: str = "sqlite:///./app.db"
     SYNC_DATABASE_URL: str = ""
 
     # 文件上传配置
-    UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "./uploads")
+    UPLOAD_DIR: str = "uploads"
     PREVIEW_DIR: str = "static/previews"
     MAX_UPLOAD_SIZE: int = 100 * 1024 * 1024  # 100MB
+    RESULT_DIR: str = "static/results"
+    TEMP_DIR: str = "temp"
+    STATIC_DIR: str = "static"
 
     # 抖音相关配置
     DOUYIN_API_TIMEOUT: int = 30
@@ -62,6 +70,20 @@ class Settings(BaseSettings):
 
     # ComfyUI配置
     COMFYUI_URL: str = os.getenv("COMFYUI_URL", "http://127.0.0.1:8188")
+
+    # 任务队列配置
+    QUEUE_SIZE: int = 5
+
+    # AI服务配置
+    DEFAULT_SUBTITLE_REMOVAL_URL: str = os.getenv(
+        "SUBTITLE_REMOVAL_URL", "http://subtitle-removal-service:8001"
+    )
+    DEFAULT_VOICE_SYNTHESIS_URL: str = os.getenv(
+        "VOICE_SYNTHESIS_URL", "http://voice-synthesis-service:8002"
+    )
+    DEFAULT_LIP_SYNC_URL: str = os.getenv(
+        "LIP_SYNC_URL", "http://lip-sync-service:8003"
+    )
 
     model_config = {
         "case_sensitive": True,
@@ -84,6 +106,12 @@ class Settings(BaseSettings):
                     if config.get("project"):
                         self.PROJECT_NAME = config["project"].get(
                             "name", self.PROJECT_NAME
+                        )
+                        self.PROJECT_DESCRIPTION = config["project"].get(
+                            "description", self.PROJECT_DESCRIPTION
+                        )
+                        self.PROJECT_VERSION = config["project"].get(
+                            "version", self.PROJECT_VERSION
                         )
                         self.API_V1_STR = config["project"].get(
                             "api_prefix", self.API_V1_STR
@@ -208,3 +236,16 @@ settings = get_settings()
 # 确保必要的目录存在
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 os.makedirs(settings.PREVIEW_DIR, exist_ok=True)
+
+# 打印配置信息
+logger.info(f"项目名称: {settings.PROJECT_NAME}")
+logger.info(f"API版本: {settings.API_V1_STR}")
+logger.info(f"数据库URL: {settings.DATABASE_URL}")
+logger.info(f"上传目录: {settings.UPLOAD_DIR}")
+logger.info(f"结果目录: {settings.RESULT_DIR}")
+logger.info(f"临时目录: {settings.TEMP_DIR}")
+logger.info(f"静态文件目录: {settings.STATIC_DIR}")
+logger.info(f"队列大小: {settings.QUEUE_SIZE}")
+logger.info(f"默认字幕擦除服务URL: {settings.DEFAULT_SUBTITLE_REMOVAL_URL}")
+logger.info(f"默认语音合成服务URL: {settings.DEFAULT_VOICE_SYNTHESIS_URL}")
+logger.info(f"默认唇形同步服务URL: {settings.DEFAULT_LIP_SYNC_URL}")
