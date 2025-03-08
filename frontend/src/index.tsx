@@ -11,6 +11,24 @@ axios.defaults.withCredentials = true;  // 允许跨域请求携带凭证
 axios.defaults.headers.common['Content-Type'] = 'application/json';
 axios.defaults.headers.common['Accept'] = 'application/json';
 
+// 添加请求拦截器，自动为请求添加认证令牌
+(axios as any).interceptors.request.use(
+  (config) => {
+    // 从localStorage获取token
+    const token = localStorage.getItem('token');
+    
+    // 如果token存在，则添加到请求头中
+    if (token && config.headers) {
+      config.headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement
 );

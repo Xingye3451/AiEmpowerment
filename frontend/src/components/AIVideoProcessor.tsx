@@ -45,6 +45,7 @@ import type { CheckboxChangeEvent } from 'antd/lib/checkbox';
 import axios from 'axios';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { ColorPicker } from 'antd';
+import { getAuthHeaders } from '../utils/auth';
 
 const { TextArea } = Input;
 const { TabPane } = Tabs;
@@ -64,6 +65,7 @@ interface TaskStatus {
   message: string;
   result?: any;
   error?: string;
+  current_stage?: string;
 }
 
 interface SubtitleStyle {
@@ -125,6 +127,14 @@ const AIVideoProcessor: React.FC = () => {
   const [subtitleRemovalMode, setSubtitleRemovalMode] = useState('balanced');
   const [processingMode, setProcessingMode] = useState('local'); // 默认使用本地处理模式
   const [localProcessingAvailable, setLocalProcessingAvailable] = useState(true); // 默认本地处理可用
+  
+  // 超分辨率处理选项
+  const [enhanceResolution, setEnhanceResolution] = useState(false);
+  const [resolutionScale, setResolutionScale] = useState(2);
+  const [resolutionModel, setResolutionModel] = useState('realesrgan-x4plus');
+  const [denoiseStrength, setDenoiseStrength] = useState(0.5);
+  const [resolutionEnhancementAvailable, setResolutionEnhancementAvailable] = useState(false);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
   
   // 字幕样式
   const [subtitleStyle, setSubtitleStyle] = useState<SubtitleStyle>({
@@ -254,7 +264,10 @@ const AIVideoProcessor: React.FC = () => {
   useEffect(() => {
     const checkLocalProcessing = async () => {
       try {
-        const response = await axios.get('/api/v1/douyin/check-local-processing');
+        // 使用getAuthHeaders获取认证头
+        const headers = getAuthHeaders();
+        
+        const response = await axios.get('/api/v1/douyin/check-local-processing', { headers });
         setLocalProcessingAvailable(response.data.available);
         
         // 如果本地处理不可用，自动切换到云服务处理模式
@@ -269,7 +282,28 @@ const AIVideoProcessor: React.FC = () => {
       }
     };
     
+    // 检查超分辨率处理服务是否可用
+    const checkResolutionEnhancement = async () => {
+      try {
+        const headers = getAuthHeaders();
+        
+        const response = await axios.get('/api/v1/douyin/check-resolution-enhancement', { headers });
+        setResolutionEnhancementAvailable(response.data.available);
+        setAvailableModels(response.data.models || []);
+        
+        if (response.data.available) {
+          message.success('超分辨率处理服务可用');
+        } else {
+          message.info(`超分辨率处理服务不可用: ${response.data.message}`);
+        }
+      } catch (error) {
+        console.error('检查超分辨率处理服务可用性失败', error);
+        setResolutionEnhancementAvailable(false);
+      }
+    };
+    
     checkLocalProcessing();
+    checkResolutionEnhancement();
   }, []);
   
   // 文件上传前检查
@@ -343,7 +377,7 @@ const AIVideoProcessor: React.FC = () => {
     }
 
     // 检查处理选项
-    if (!removeSubtitles && !extractVoice && !generateSpeech && !lipSync && !addSubtitles) {
+    if (!removeSubtitles && !extractVoice && !generateSpeech && !lipSync && !addSubtitles && !enhanceResolution) {
       message.error('请至少选择一项处理功能！');
       return;
     }
@@ -388,6 +422,12 @@ const AIVideoProcessor: React.FC = () => {
         formData.append('voice_text', voiceText);
       }
       
+      // 添加超分辨率处理选项
+      formData.append('enhance_resolution', enhanceResolution.toString());
+      formData.append('resolution_scale', resolutionScale.toString());
+      formData.append('resolution_model', resolutionModel);
+      formData.append('denoise_strength', denoiseStrength.toString());
+
       // 发送请求
       const response = await axios.post('/api/v1/douyin/batch-process-videos', formData);
       
@@ -475,169 +515,140 @@ const AIVideoProcessor: React.FC = () => {
   // 渲染任务列表
   const renderTasks = () => {
     if (tasks.length === 0) {
-      return (
-        <Empty 
-          image={Empty.PRESENTED_IMAGE_SIMPLE} 
-          description="暂无处理任务"
-          style={{ margin: '40px 0' }}
-        />
-      );
+      return null;
     }
-
+    
     return (
-      <div className="task-list">
-        <Title level={4}>处理任务</Title>
-        {tasks.map(task => {
-          const status = taskStatuses[task.task_id] || {
-            status: 'pending',
-            progress: 0,
-            message: '等待处理...'
-          };
-          
-          // 状态图标
-          let statusIcon;
-          let statusColor;
-          
-          switch(status.status) {
-            case 'pending':
-              statusIcon = <ClockCircleOutlined />;
-              statusColor = 'default';
-              break;
-            case 'running':
-              statusIcon = <SyncOutlined spin />;
-              statusColor = 'processing';
-              break;
-            case 'completed':
-              statusIcon = <CheckCircleOutlined />;
-              statusColor = 'success';
-              break;
-            case 'failed':
-              statusIcon = <ExclamationCircleOutlined />;
-              statusColor = 'error';
-              break;
-            default:
-              statusIcon = <InfoCircleOutlined />;
-              statusColor = 'default';
-          }
-          
-          return (
-            <Card 
-              key={task.task_id} 
-              style={{ marginBottom: 16 }}
-              title={
-                <Space>
-                  <span>{task.original_filename}</span>
-                  <Tag color={statusColor} icon={statusIcon}>
-                    {status.status === 'pending' ? '等待处理' : 
-                     status.status === 'running' ? '处理中' : 
-                     status.status === 'completed' ? '处理完成' : '处理失败'}
-                  </Tag>
-                </Space>
-              }
-              extra={
-                status.status === 'completed' ? (
+      <div className="tasks-container" style={{ marginTop: 24 }}>
+        <Card 
+          title={
+            <Space>
+              <SyncOutlined style={{ color: processingComplete ? '#52c41a' : '#1890ff' }} spin={!processingComplete} />
+              <span>处理任务 ({tasks.length})</span>
+              {processingComplete && <Tag color="success">全部完成</Tag>}
+            </Space>
+          } 
+          style={{ marginBottom: 24, borderRadius: '8px' }}
+          className="task-card"
+        >
+          {tasks.map((task, index) => {
+            const status = taskStatuses[task.task_id] || { status: 'pending', progress: 0, message: '等待处理...' };
+            
+            // 获取处理流程的中文名称
+            const getPipelineName = (step: string) => {
+              const pipelineMap: Record<string, string> = {
+                'subtitle_removal': '字幕擦除',
+                'voice_extraction': '音色提取',
+                'speech_generation': '语音生成',
+                'lip_sync': '唇形同步',
+                'add_subtitles': '添加字幕',
+                'enhance_resolution': '超分辨率处理'
+              };
+              return pipelineMap[step] || step;
+            };
+            
+            return (
+              <Card 
+                key={task.task_id} 
+                size="small" 
+                style={{ marginBottom: 16 }}
+                title={
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Space>
+                      <span>任务 #{index + 1}: {task.original_filename}</span>
+                      {status.status === 'pending' && <Badge status="default" text="等待中" />}
+                      {status.status === 'scheduled' && <Badge status="processing" text="已调度" />}
+                      {status.status === 'running' && <Badge status="processing" text="处理中" />}
+                      {status.status === 'completed' && <Badge status="success" text="已完成" />}
+                      {status.status === 'failed' && <Badge status="error" text="失败" />}
+                    </Space>
+                    <Space>
+                      {status.status === 'completed' && (
+                        <>
+                          <Button 
+                            type="primary" 
+                            size="small" 
+                            icon={<DownloadOutlined />}
+                            onClick={() => handleDownload(task.task_id)}
+                          >
+                            下载
+                          </Button>
+                          <Button 
+                            type="default" 
+                            size="small" 
+                            icon={<PlayCircleOutlined />}
+                            onClick={() => handlePreview(task.task_id, task.original_filename)}
+                          >
+                            预览
+                          </Button>
+                        </>
+                      )}
+                    </Space>
+                  </div>
+                }
+              >
+                <div>
+                  <Text strong>处理流程: </Text>
                   <Space>
-                    <Button 
-                      type="primary" 
-                      icon={<DownloadOutlined />} 
-                      onClick={() => handleDownload(task.task_id)}
-                    >
-                      下载
-                    </Button>
-                    <Button 
-                      icon={<PlayCircleOutlined />} 
-                      onClick={() => handlePreview(task.task_id, task.original_filename)}
-                    >
-                      预览
-                    </Button>
-                  </Space>
-                ) : null
-              }
-              className="task-card"
-            >
-              <div>
-                <Text strong>处理流程: </Text>
-                <Space wrap>
-                  {task.processing_pipeline.map((step, index) => {
-                    let stepName;
-                    let color;
-                    
-                    switch(step) {
-                      case 'subtitle_removal': 
-                        stepName = '字幕擦除';
-                        color = 'blue';
-                        break;
-                      case 'voice_extraction': 
-                        stepName = '音色提取';
-                        color = 'purple';
-                        break;
-                      case 'speech_generation': 
-                        stepName = '语音生成';
-                        color = 'green';
-                        break;
-                      case 'lip_sync': 
-                        stepName = '唇形同步';
-                        color = 'magenta';
-                        break;
-                      case 'add_subtitles': 
-                        stepName = '添加字幕';
-                        color = 'orange';
-                        break;
-                      default: 
-                        stepName = step;
-                        color = 'default';
-                    }
-                    
-                    return (
-                      <React.Fragment key={step}>
-                        <Tag color={color}>{stepName}</Tag>
-                        {index < task.processing_pipeline.length - 1 && (
-                          <span className="pipeline-arrow">→</span>
-                        )}
+                    {task.processing_pipeline.map((step, i) => (
+                      <React.Fragment key={i}>
+                        {i > 0 && <span className="pipeline-arrow">→</span>}
+                        <Tag 
+                          color={
+                            status.status === 'running' && status.current_stage === step ? 
+                            'processing' : 
+                            status.status === 'completed' ? 'success' : 'default'
+                          }
+                        >
+                          {getPipelineName(step)}
+                          {status.status === 'running' && status.current_stage === step && (
+                            <SyncOutlined spin style={{ marginLeft: 4 }} />
+                          )}
+                        </Tag>
                       </React.Fragment>
-                    );
-                  })}
-                </Space>
-              </div>
-              
-              {status.message && (
-                <div style={{ marginTop: 12 }}>
-                  <Text strong>消息: </Text>
-                  <Text>{status.message}</Text>
+                    ))}
+                  </Space>
                 </div>
-              )}
-              
-              {status.error && (
-                <div style={{ marginTop: 12 }}>
-                  <Text strong type="danger">错误: </Text>
-                  <Text type="danger">{status.error}</Text>
-                </div>
-              )}
-              
-              {status.status === 'running' && (
-                <Progress 
-                  percent={Math.round(status.progress)} 
-                  status="active" 
-                  style={{ marginTop: 16 }} 
-                  strokeColor={{
-                    '0%': '#108ee9',
-                    '100%': '#87d068',
-                  }}
-                />
-              )}
-              
-              {status.status === 'completed' && status.result && status.result.thumbnail_url && (
-                <div style={{ marginTop: 16, textAlign: 'center' }}>
-                  <img 
-                    src={status.result.thumbnail_url} 
-                    alt="视频预览" 
-                    style={{ maxWidth: '100%', maxHeight: 200, borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }} 
+                
+                {status.message && (
+                  <div style={{ marginTop: 12 }}>
+                    <Text strong>消息: </Text>
+                    <Text>{status.message}</Text>
+                  </div>
+                )}
+                
+                {status.error && (
+                  <div style={{ marginTop: 12 }}>
+                    <Text strong type="danger">错误: </Text>
+                    <Text type="danger">{status.error}</Text>
+                  </div>
+                )}
+                
+                {status.status === 'running' && (
+                  <Progress 
+                    percent={Math.round(status.progress)} 
+                    status="active" 
+                    style={{ marginTop: 16 }} 
+                    strokeColor={{
+                      '0%': '#108ee9',
+                      '100%': '#87d068',
+                    }}
                   />
-                </div>
-              )}
-            </Card>
-          );
-        })}
+                )}
+                
+                {status.status === 'completed' && status.result && status.result.thumbnail_url && (
+                  <div style={{ marginTop: 16, textAlign: 'center' }}>
+                    <img 
+                      src={status.result.thumbnail_url} 
+                      alt="视频预览" 
+                      style={{ maxWidth: '100%', maxHeight: 200, borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }} 
+                    />
+                  </div>
+                )}
+              </Card>
+            );
+          })}
+        </Card>
       </div>
     );
   };
@@ -1192,6 +1203,140 @@ const AIVideoProcessor: React.FC = () => {
                       style={{ marginBottom: 16 }}
                     />
                   </div>
+                )}
+              </Card>
+            </Col>
+            
+            <Col xs={24} md={12}>
+              <Card 
+                title="视频超分辨率" 
+                size="small" 
+                className="option-card"
+                style={{ height: '100%' }}
+                extra={
+                  <Tag color={resolutionEnhancementAvailable ? "success" : "error"}>
+                    {resolutionEnhancementAvailable ? "服务可用" : "服务不可用"}
+                  </Tag>
+                }
+              >
+                <div style={{ marginBottom: 16 }}>
+                  <Space>
+                    <Switch
+                      checked={enhanceResolution}
+                      onChange={(checked) => setEnhanceResolution(checked)}
+                      disabled={isProcessing || !resolutionEnhancementAvailable}
+                    />
+                    <span>启用视频超分辨率</span>
+                    <Tooltip title="使用AI技术提高视频分辨率和清晰度">
+                      <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                    </Tooltip>
+                  </Space>
+                </div>
+                
+                {enhanceResolution && (
+                  <div style={{ marginLeft: 24 }}>
+                    <Form layout="vertical">
+                      <Row gutter={16}>
+                        <Col span={12}>
+                          <Form.Item 
+                            label={
+                              <Space>
+                                <span>放大倍数</span>
+                                <Tooltip title="设置视频放大的倍数">
+                                  <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                                </Tooltip>
+                              </Space>
+                            }
+                          >
+                            <Select
+                              value={resolutionScale}
+                              onChange={(value) => setResolutionScale(value)}
+                              disabled={isProcessing}
+                              style={{ width: '100%' }}
+                              options={[
+                                { value: 2, label: '2倍' },
+                                { value: 3, label: '3倍' },
+                                { value: 4, label: '4倍' }
+                              ]}
+                            />
+                          </Form.Item>
+                        </Col>
+                        
+                        <Col span={12}>
+                          <Form.Item 
+                            label={
+                              <Space>
+                                <span>模型选择</span>
+                                <Tooltip title="选择不同的超分辨率模型">
+                                  <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                                </Tooltip>
+                              </Space>
+                            }
+                          >
+                            <Select
+                              value={resolutionModel}
+                              onChange={(value) => setResolutionModel(value)}
+                              disabled={isProcessing}
+                              style={{ width: '100%' }}
+                              options={[
+                                { value: 'realesrgan-x4plus', label: '通用模型 (推荐)' },
+                                { value: 'realesrgan-x4plus-anime', label: '动漫模型' },
+                                { value: 'realesrgan-x2plus', label: '2倍通用模型' }
+                              ].filter(option => availableModels.includes(option.value))}
+                            />
+                          </Form.Item>
+                        </Col>
+                        
+                        <Col span={24}>
+                          <Form.Item 
+                            label={
+                              <Space>
+                                <span>降噪强度</span>
+                                <Tooltip title="调整降噪强度，值越大降噪效果越强">
+                                  <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                                </Tooltip>
+                              </Space>
+                            }
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                              <InputNumber
+                                min={0}
+                                max={1}
+                                step={0.1}
+                                value={denoiseStrength}
+                                onChange={(value) => setDenoiseStrength(value as number)}
+                                disabled={isProcessing}
+                                style={{ width: '100%' }}
+                              />
+                            </div>
+                          </Form.Item>
+                        </Col>
+                      </Row>
+                      
+                      <Alert
+                        message="超分辨率处理说明"
+                        description={
+                          <ul style={{ paddingLeft: '20px', margin: '8px 0' }}>
+                            <li>处理时间取决于视频长度和分辨率，可能需要较长时间</li>
+                            <li>通用模型适合真实视频，动漫模型适合动画内容</li>
+                            <li>降噪强度建议值：0.5（平衡降噪和细节保留）</li>
+                            <li>超分辨率处理会在添加字幕之前进行，以保证字幕清晰度</li>
+                          </ul>
+                        }
+                        type="info"
+                        showIcon
+                      />
+                    </Form>
+                  </div>
+                )}
+                
+                {!resolutionEnhancementAvailable && (
+                  <Alert
+                    message="超分辨率服务不可用"
+                    description="请联系管理员启用超分辨率服务"
+                    type="warning"
+                    showIcon
+                  />
                 )}
               </Card>
             </Col>

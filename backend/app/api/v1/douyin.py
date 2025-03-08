@@ -12,7 +12,7 @@ from fastapi import (
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 import json
 import os
 from datetime import datetime
@@ -946,6 +946,10 @@ async def batch_process_videos(
     voice_text: str = Form(""),  # 新增用于语音合成的文本
     add_subtitles: bool = Form(False),  # 新增是否添加字幕参数
     subtitle_style: str = Form("{}"),  # 新增字幕样式参数，默认为空JSON对象
+    enhance_resolution: bool = Form(False),  # 新增是否进行视频超分辨率处理参数
+    resolution_scale: int = Form(2),  # 新增超分辨率倍数参数，默认为2倍
+    resolution_model: str = Form("realesrgan-x4plus"),  # 新增超分辨率模型参数
+    denoise_strength: float = Form(0.5),  # 新增降噪强度参数
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -965,6 +969,10 @@ async def batch_process_videos(
     - voice_text: 用于语音合成的文本
     - add_subtitles: 是否添加字幕
     - subtitle_style: 字幕样式，支持更多颜色格式，包括HEX和RGBA
+    - enhance_resolution: 是否进行视频超分辨率处理
+    - resolution_scale: 超分辨率倍数，支持2/3/4
+    - resolution_model: 超分辨率模型，支持'realesrgan-x4plus'(通用模型)和'realesrgan-x4plus-anime'(动漫模型)
+    - denoise_strength: 降噪强度，范围0-1
     """
     from app.services.task_service import TaskService
     from app.schemas.task import TaskCreate
@@ -1042,6 +1050,11 @@ async def batch_process_videos(
                 ),  # 如果未提供语音文本，使用字幕文本
                 "add_subtitles": add_subtitles,
                 "subtitle_style": subtitle_style_obj,
+                # 新增视频超分辨率处理相关参数
+                "enhance_resolution": enhance_resolution,
+                "scale": resolution_scale,
+                "model_name": resolution_model,
+                "denoise_strength": denoise_strength,
                 "processing_pipeline": [],  # 用于记录处理流程
             }
 
@@ -1072,6 +1085,10 @@ async def batch_process_videos(
                         task_data["processing_pipeline"].append("voice_extraction")
                     task_data["processing_pipeline"].append("speech_generation")
                 task_data["processing_pipeline"].append("lip_sync")
+
+            if enhance_resolution:
+                # 添加视频超分辨率处理步骤
+                task_data["processing_pipeline"].append("enhance_resolution")
 
             if add_subtitles:
                 task_data["processing_pipeline"].append("add_subtitles")
@@ -1496,3 +1513,93 @@ async def get_process_status(
         "result_url": f"/api/v1/douyin/processed-video/{task_id}",
         "thumbnail_url": f"/api/v1/douyin/processed-video-thumbnail/{task_id}",
     }
+
+
+@router.get("/check-resolution-enhancement", response_model=Dict[str, Any])
+async def check_resolution_enhancement(current_user: User = Depends(get_current_user)):
+    """检查超分辨率处理服务是否可用"""
+    from app.core.video_processing_service import VideoProcessingService
+
+    try:
+        # 创建视频处理服务实例
+        video_service = VideoProcessingService(
+            base_dir="uploads",
+            temp_dir="uploads/temp",
+            output_dir="uploads/processed_videos",
+            voice_dir="uploads/voices",
+        )
+
+        # 加载配置
+        await video_service.load_configs()
+
+        # 获取超分辨率处理配置
+        config = video_service.configs.get("video_enhancement", {})
+        service_url = config.get("service_url", "http://realesrgan:6060")
+        use_local = config.get("use_local", False)
+
+        # 检查服务是否可用
+        if use_local:
+            # 检查本地是否安装了Real-ESRGAN
+            try:
+                import importlib.util
+
+                realesrgan_spec = importlib.util.find_spec("realesrgan")
+                has_realesrgan = realesrgan_spec is not None
+            except ImportError:
+                has_realesrgan = False
+
+            return {
+                "available": has_realesrgan,
+                "mode": "local",
+                "models": (
+                    ["realesrgan-x4plus", "realesrgan-x4plus-anime"]
+                    if has_realesrgan
+                    else []
+                ),
+                "message": (
+                    "本地Real-ESRGAN已安装"
+                    if has_realesrgan
+                    else "本地未安装Real-ESRGAN"
+                ),
+            }
+        else:
+            # 检查API服务是否可用
+            import aiohttp
+
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        f"{service_url}/status", timeout=5
+                    ) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            return {
+                                "available": True,
+                                "mode": "api",
+                                "models": data.get(
+                                    "models",
+                                    ["realesrgan-x4plus", "realesrgan-x4plus-anime"],
+                                ),
+                                "message": "Real-ESRGAN API服务可用",
+                            }
+                        else:
+                            return {
+                                "available": False,
+                                "mode": "api",
+                                "models": [],
+                                "message": f"Real-ESRGAN API服务返回错误: {response.status}",
+                            }
+            except Exception as e:
+                return {
+                    "available": False,
+                    "mode": "api",
+                    "models": [],
+                    "message": f"无法连接到Real-ESRGAN API服务: {str(e)}",
+                }
+    except Exception as e:
+        return {
+            "available": False,
+            "mode": "unknown",
+            "models": [],
+            "message": f"检查超分辨率处理服务失败: {str(e)}",
+        }

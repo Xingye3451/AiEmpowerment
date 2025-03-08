@@ -413,6 +413,39 @@ class VideoProcessingService:
                         "subtitled_video_path"
                     ] = subtitled_video_path
 
+                elif step == "enhance_resolution":
+                    # 视频超分辨率处理
+                    await self._update_progress(
+                        task_id,
+                        step_start_progress,
+                        "开始视频超分辨率处理",
+                        {"current_stage": "enhance_resolution"},
+                        progress_callback,
+                    )
+
+                    # 获取超分辨率参数
+                    scale = task_data.get("scale", 2)
+                    model_name = task_data.get("model_name", "realesrgan-x4plus")
+                    denoise_strength = task_data.get("denoise_strength", 0.5)
+
+                    # 执行超分辨率处理
+                    enhanced_video_path = await self._enhance_resolution(
+                        current_video_path,
+                        task_dir,
+                        task_id,
+                        scale,
+                        model_name,
+                        denoise_strength,
+                        step_start_progress,
+                        step_end_progress,
+                        progress_callback,
+                    )
+
+                    current_video_path = enhanced_video_path
+                    self.tasks[task_id]["output_paths"][
+                        "enhanced_video_path"
+                    ] = enhanced_video_path
+
             # 最终处理
             output_filename = f"processed_{os.path.basename(video_path)}"
             output_path = os.path.join(self.output_dir, output_filename)
@@ -1306,3 +1339,261 @@ class VideoProcessingService:
             shutil.rmtree(task_dir)
 
         return True
+
+    async def _enhance_resolution(
+        self,
+        video_path: str,
+        task_dir: str,
+        task_id: str,
+        scale: int = 2,
+        model_name: str = "realesrgan-x4plus",
+        denoise_strength: float = 0.5,
+        start_progress: float = 0,
+        end_progress: float = 25,
+        progress_callback: Optional[
+            Callable[[str, int, str, Dict[str, Any]], None]
+        ] = None,
+    ) -> str:
+        """
+        使用Real-ESRGAN对视频进行超分辨率处理
+
+        Args:
+            video_path: 输入视频路径
+            task_dir: 任务目录
+            task_id: 任务ID
+            scale: 放大倍数，支持2/3/4
+            model_name: 模型名称，支持 'realesrgan-x4plus'(通用模型), 'realesrgan-x4plus-anime'(动漫模型)
+            denoise_strength: 降噪强度，范围0-1
+            start_progress: 起始进度百分比
+            end_progress: 结束进度百分比
+            progress_callback: 进度回调函数
+
+        Returns:
+            处理后的视频路径
+        """
+        # 获取配置
+        config = self.configs.get("video_enhancement", {})
+        service_url = config.get("service_url", "http://realesrgan:6060")
+        timeout = config.get("timeout", 600)  # 超分辨率处理可能需要更长时间
+
+        # 更新进度
+        await self._update_progress(
+            task_id,
+            start_progress,
+            "正在准备视频超分辨率处理",
+            {"current_stage": "resolution_enhancement"},
+            progress_callback,
+        )
+
+        # 创建输出路径
+        enhanced_video_path = os.path.join(task_dir, f"enhanced_video.mp4")
+
+        try:
+            # 检查是否使用本地处理模式
+            use_local = config.get("use_local", False)
+
+            if use_local:
+                # 本地处理模式
+                # 首先提取视频帧
+                frames_dir = os.path.join(task_dir, "frames")
+                os.makedirs(frames_dir, exist_ok=True)
+
+                # 使用ffmpeg提取帧
+                extract_cmd = [
+                    "ffmpeg",
+                    "-i",
+                    video_path,
+                    "-vf",
+                    "fps=24",  # 固定帧率为24fps
+                    os.path.join(frames_dir, "frame_%05d.png"),
+                ]
+
+                extract_process = await asyncio.create_subprocess_exec(
+                    *extract_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+
+                await extract_process.communicate()
+
+                if extract_process.returncode != 0:
+                    raise Exception("提取视频帧失败")
+
+                # 更新进度
+                await self._update_progress(
+                    task_id,
+                    start_progress + (end_progress - start_progress) * 0.2,
+                    "正在对视频帧进行超分辨率处理",
+                    {"current_stage": "resolution_enhancement"},
+                    progress_callback,
+                )
+
+                # 创建输出目录
+                enhanced_frames_dir = os.path.join(task_dir, "enhanced_frames")
+                os.makedirs(enhanced_frames_dir, exist_ok=True)
+
+                # 获取所有帧
+                frames = sorted(os.listdir(frames_dir))
+                total_frames = len(frames)
+
+                # 使用Real-ESRGAN处理每一帧
+                for i, frame in enumerate(frames):
+                    frame_path = os.path.join(frames_dir, frame)
+                    output_path = os.path.join(enhanced_frames_dir, frame)
+
+                    # 构建Real-ESRGAN命令
+                    enhance_cmd = [
+                        "python",
+                        "-m",
+                        "realesrgan.inference_realesrgan",
+                        "-i",
+                        frame_path,
+                        "-o",
+                        output_path,
+                        "-n",
+                        model_name,
+                        "-s",
+                        str(scale),
+                        "--face_enhance",  # 启用面部增强
+                        "--fp32",  # 使用FP32精度
+                        "--denoise_strength",
+                        str(denoise_strength),
+                    ]
+
+                    enhance_process = await asyncio.create_subprocess_exec(
+                        *enhance_cmd,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+
+                    await enhance_process.communicate()
+
+                    if enhance_process.returncode != 0:
+                        raise Exception(f"处理帧 {frame} 失败")
+
+                    # 更新进度
+                    current_progress = start_progress + (
+                        end_progress - start_progress
+                    ) * (0.2 + 0.6 * (i / total_frames))
+                    await self._update_progress(
+                        task_id,
+                        current_progress,
+                        f"正在处理视频帧 {i+1}/{total_frames}",
+                        {"current_stage": "resolution_enhancement"},
+                        progress_callback,
+                    )
+
+                # 更新进度
+                await self._update_progress(
+                    task_id,
+                    start_progress + (end_progress - start_progress) * 0.8,
+                    "正在合成增强后的视频",
+                    {"current_stage": "resolution_enhancement"},
+                    progress_callback,
+                )
+
+                # 提取原始视频的音频
+                audio_path = os.path.join(task_dir, "audio.wav")
+                extract_audio_cmd = [
+                    "ffmpeg",
+                    "-i",
+                    video_path,
+                    "-vn",
+                    "-acodec",
+                    "pcm_s16le",
+                    "-ar",
+                    "44100",
+                    "-ac",
+                    "2",
+                    audio_path,
+                ]
+
+                audio_process = await asyncio.create_subprocess_exec(
+                    *extract_audio_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+
+                await audio_process.communicate()
+
+                # 使用ffmpeg合成视频
+                compose_cmd = [
+                    "ffmpeg",
+                    "-framerate",
+                    "24",  # 与提取时相同的帧率
+                    "-i",
+                    os.path.join(enhanced_frames_dir, "frame_%05d.png"),
+                    "-i",
+                    audio_path,
+                    "-c:v",
+                    "libx264",
+                    "-crf",
+                    "18",  # 高质量编码
+                    "-preset",
+                    "medium",  # 平衡编码速度和质量
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    "192k",
+                    "-shortest",
+                    enhanced_video_path,
+                ]
+
+                compose_process = await asyncio.create_subprocess_exec(
+                    *compose_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+
+                await compose_process.communicate()
+
+                if compose_process.returncode != 0:
+                    raise Exception("合成增强视频失败")
+
+                # 清理临时文件
+                import shutil
+
+                shutil.rmtree(frames_dir, ignore_errors=True)
+                shutil.rmtree(enhanced_frames_dir, ignore_errors=True)
+                os.remove(audio_path)
+            else:
+                # 使用API服务处理
+                # 准备请求数据
+                files = {"video": open(video_path, "rb")}
+                data = {
+                    "scale": str(scale),
+                    "model_name": model_name,
+                    "denoise_strength": str(denoise_strength),
+                    "task_id": task_id,
+                }
+
+                # 发送请求到Real-ESRGAN服务
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        f"{service_url}/enhance_video",
+                        data=data,
+                        files=files,
+                        timeout=timeout,
+                    ) as response:
+                        if response.status != 200:
+                            error_text = await response.text()
+                            raise Exception(f"API请求失败: {error_text}")
+
+                        # 保存响应的视频
+                        with open(enhanced_video_path, "wb") as f:
+                            f.write(await response.read())
+
+            # 更新进度
+            await self._update_progress(
+                task_id,
+                end_progress,
+                "视频超分辨率处理完成",
+                {"current_stage": "resolution_enhancement"},
+                progress_callback,
+            )
+
+            return enhanced_video_path
+        except Exception as e:
+            logger.error(f"视频超分辨率处理失败: {str(e)}")
+            # 如果处理失败，返回原始视频
+            return video_path

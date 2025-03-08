@@ -85,6 +85,36 @@ class Settings(BaseSettings):
         "LIP_SYNC_URL", "http://lip-sync-service:8003"
     )
 
+    # 视频超分辨率处理配置
+    VIDEO_ENHANCEMENT_CONFIG = {
+        "service_url": os.getenv("REALESRGAN_SERVICE_URL", "http://realesrgan:6060"),
+        "use_local": os.getenv("USE_LOCAL_REALESRGAN", "false").lower() == "true",
+        "timeout": int(os.getenv("REALESRGAN_TIMEOUT", "600")),
+        "models": {
+            "realesrgan-x4plus": {
+                "name": "通用模型",
+                "description": "适用于各种真实照片和视频的超分辨率处理",
+                "max_scale": 4,
+            },
+            "realesrgan-x4plus-anime": {
+                "name": "动漫模型",
+                "description": "专为动漫内容优化的超分辨率模型",
+                "max_scale": 4,
+            },
+            "realesrgan-x2plus": {
+                "name": "2倍通用模型",
+                "description": "适用于2倍放大的通用模型",
+                "max_scale": 2,
+            },
+        },
+    }
+
+    # 更新默认配置
+    DEFAULT_CONFIGS = {
+        # ... existing configs ...
+        "video_enhancement": VIDEO_ENHANCEMENT_CONFIG,
+    }
+
     model_config = {
         "case_sensitive": True,
         "env_file": ".env",
