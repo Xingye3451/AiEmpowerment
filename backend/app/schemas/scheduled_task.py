@@ -49,7 +49,7 @@ class ScheduledTaskInDB(ScheduledTaskBase):
     updated_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class ScheduledTaskResponse(ScheduledTaskBase):
@@ -64,7 +64,7 @@ class ScheduledTaskResponse(ScheduledTaskBase):
     last_run: Optional[datetime] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class ScheduledTaskListResponse(BaseModel):

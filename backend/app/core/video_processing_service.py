@@ -8,6 +8,7 @@ import json
 import asyncio
 import logging
 import subprocess
+import time
 from typing import Dict, Any, List, Optional, Callable, Tuple
 from datetime import datetime
 import numpy as np
@@ -607,16 +608,16 @@ class VideoProcessingService:
             data = aiohttp.FormData()
             async with aiofiles.open(video_path, "rb") as f:
                 data.add_field(
-                    "video", await f.read(), filename=os.path.basename(video_path)
+                    "file", await f.read(), filename=os.path.basename(video_path)
                 )
 
             data.add_field("mode", mode)
-            data.add_field("auto_detect", str(auto_detect))
+            data.add_field("auto_detect", str(auto_detect).lower())
 
             # 如果提供了选定区域
             if selected_area and not auto_detect:
                 area_str = f"{selected_area['x']},{selected_area['y']},{selected_area['x']+selected_area['width']},{selected_area['y']+selected_area['height']}"
-                data.add_field("manual_area", area_str)
+                data.add_field("sub_area", area_str)
 
             # 更新进度
             await self._update_progress(
@@ -629,18 +630,72 @@ class VideoProcessingService:
 
             # 发送请求
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
-                        f"{service_url}/remove_subtitles", data=data, timeout=timeout
-                    ) as response:
-                        if response.status != 200:
-                            error_text = await response.text()
-                            logger.error(f"字幕擦除服务返回错误: {error_text}")
-                            raise Exception(f"字幕擦除服务返回错误: {response.status}")
+                # 使用重试机制发送请求
+                status, result = await self._http_request_with_retry(
+                    method="POST",
+                    url=f"{service_url}/api/remove_subtitle",
+                    data=data,
+                    timeout=30,
+                    max_retries=3,
+                )
 
-                        # 保存结果
-                        async with aiofiles.open(output_path, "wb") as f:
-                            await f.write(await response.read())
+                if status != 200:
+                    raise Exception(f"字幕擦除服务返回错误: HTTP {status}")
+
+                # 获取任务ID
+                remote_task_id = result.get("task_id")
+                if not remote_task_id:
+                    raise Exception("字幕擦除服务未返回任务ID")
+
+                logger.info(f"字幕擦除任务已提交: {remote_task_id}")
+
+                # 轮询任务状态
+                status_result = await self.poll_task_status(
+                    service_name="subtitle_removal",
+                    service_url=service_url,
+                    task_id=remote_task_id,
+                    local_task_id=task_id,
+                    poll_interval=2.0,
+                    timeout=timeout,
+                    progress_callback=progress_callback,
+                    start_progress=start_progress
+                    + (end_progress - start_progress) * 0.3,
+                    end_progress=end_progress - (end_progress - start_progress) * 0.1,
+                )
+
+                # 检查任务是否成功
+                if status_result.get("status") != "completed":
+                    error_message = status_result.get("message", "未知错误")
+                    logger.error(f"字幕擦除任务失败: {error_message}")
+                    raise Exception(f"字幕擦除任务失败: {error_message}")
+
+                # 下载处理结果
+                status, content = await self._http_request_with_retry(
+                    method="GET",
+                    url=f"{service_url}/api/download/{remote_task_id}",
+                    timeout=timeout,
+                    max_retries=2,
+                )
+
+                if status != 200:
+                    raise Exception(f"下载字幕擦除结果失败: HTTP {status}")
+
+                # 保存结果
+                async with aiofiles.open(output_path, "wb") as f:
+                    await f.write(content)
+
+                # 清理远程任务
+                try:
+                    status, _ = await self._http_request_with_retry(
+                        method="DELETE",
+                        url=f"{service_url}/api/task/{remote_task_id}",
+                        timeout=10,
+                        max_retries=1,
+                    )
+                    if status != 200:
+                        logger.warning(f"清理字幕擦除任务失败: {remote_task_id}")
+                except Exception as e:
+                    logger.warning(f"清理字幕擦除任务出错: {str(e)}")
 
                 logger.info(f"字幕擦除成功: {output_path}")
             except Exception as e:
@@ -661,38 +716,8 @@ class VideoProcessingService:
         except Exception as e:
             logger.error(f"字幕擦除失败: {str(e)}")
 
-            # 如果出错，使用简单的视频复制作为备选方案
-            try:
-                logger.info("使用备选方案: 简单视频复制")
-
-                # 使用ffmpeg复制视频
-                cmd = ["ffmpeg", "-i", video_path, "-c", "copy", "-y", output_path]
-
-                process = await asyncio.create_subprocess_exec(
-                    *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-                )
-
-                await process.communicate()
-
-                if process.returncode != 0 or not os.path.exists(output_path):
-                    raise Exception("备选方案视频处理失败")
-
-                # 更新进度
-                await self._update_progress(
-                    task_id,
-                    end_progress,
-                    "使用备选方案完成视频处理",
-                    {"current_stage": "subtitle_removal"},
-                    progress_callback,
-                )
-
-                return output_path
-
-            except Exception as fallback_error:
-                logger.error(f"备选方案失败: {str(fallback_error)}")
-                raise Exception(
-                    f"字幕擦除失败: {str(e)}, 备选方案也失败: {str(fallback_error)}"
-                )
+            # 如果处理失败，返回原始视频
+            return video_path
 
     async def _extract_voice(
         self,
@@ -768,23 +793,26 @@ class VideoProcessingService:
             data = aiohttp.FormData()
             async with aiofiles.open(audio_path, "rb") as f:
                 data.add_field(
-                    "audio", await f.read(), filename=os.path.basename(audio_path)
+                    "audio_file", await f.read(), filename=os.path.basename(audio_path)
                 )
 
             # 发送请求
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
-                        f"{service_url}/extract_voice", data=data, timeout=timeout
-                    ) as response:
-                        if response.status != 200:
-                            error_text = await response.text()
-                            logger.error(f"音色提取服务返回错误: {error_text}")
-                            raise Exception(f"音色提取服务返回错误: {response.status}")
+                # 使用重试机制发送请求
+                status, content = await self._http_request_with_retry(
+                    method="POST",
+                    url=f"{service_url}/extract_voice",
+                    data=data,
+                    timeout=timeout,
+                    max_retries=3,
+                )
 
-                        # 保存结果
-                        async with aiofiles.open(voice_path, "wb") as f:
-                            await f.write(await response.read())
+                if status != 200:
+                    raise Exception(f"音色提取服务返回错误: HTTP {status}")
+
+                # 保存结果
+                async with aiofiles.open(voice_path, "wb") as f:
+                    await f.write(content)
 
                 logger.info(f"音色提取成功: {voice_path}")
             except Exception as e:
@@ -800,38 +828,11 @@ class VideoProcessingService:
                 progress_callback,
             )
 
-            return audio_path, voice_id
+            return voice_id, voice_path
 
         except Exception as e:
             logger.error(f"音色提取失败: {str(e)}")
-
-            # 如果出错，创建一个空的音色文件作为备选方案
-            try:
-                logger.info("使用备选方案: 创建空音色文件")
-
-                # 创建一个空的音色文件
-                dummy_data = np.zeros((1, 256), dtype=np.float32)  # 假设特征维度为256
-                np.savez(voice_path, feature=dummy_data)
-
-                if not os.path.exists(voice_path):
-                    raise Exception("备选方案音色提取失败")
-
-                # 更新进度
-                await self._update_progress(
-                    task_id,
-                    end_progress,
-                    "使用备选方案完成音色提取",
-                    {"current_stage": "voice_extraction"},
-                    progress_callback,
-                )
-
-                return audio_path, voice_id
-
-            except Exception as fallback_error:
-                logger.error(f"备选方案失败: {str(fallback_error)}")
-                raise Exception(
-                    f"音色提取失败: {str(e)}, 备选方案也失败: {str(fallback_error)}"
-                )
+            raise
 
     async def _generate_speech(
         self,
@@ -898,18 +899,21 @@ class VideoProcessingService:
 
             # 发送请求
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
-                        f"{service_url}/generate_speech", data=data, timeout=timeout
-                    ) as response:
-                        if response.status != 200:
-                            error_text = await response.text()
-                            logger.error(f"语音生成服务返回错误: {error_text}")
-                            raise Exception(f"语音生成服务返回错误: {response.status}")
+                # 使用重试机制发送请求
+                status, content = await self._http_request_with_retry(
+                    method="POST",
+                    url=f"{service_url}/generate_speech",
+                    data=data,
+                    timeout=timeout,
+                    max_retries=3,
+                )
 
-                        # 保存结果
-                        async with aiofiles.open(output_path, "wb") as f:
-                            await f.write(await response.read())
+                if status != 200:
+                    raise Exception(f"语音生成服务返回错误: HTTP {status}")
+
+                # 保存结果
+                async with aiofiles.open(output_path, "wb") as f:
+                    await f.write(content)
 
                 logger.info(f"语音生成成功: {output_path}")
             except Exception as e:
@@ -929,53 +933,7 @@ class VideoProcessingService:
 
         except Exception as e:
             logger.error(f"语音生成失败: {str(e)}")
-
-            # 如果出错，创建一个空的音频文件作为备选方案
-            try:
-                logger.info("使用备选方案: 创建空音频文件")
-
-                # 创建一个空的音频文件
-                cmd = [
-                    "ffmpeg",
-                    "-f",
-                    "lavfi",
-                    "-i",
-                    "anullsrc=r=16000:cl=mono",
-                    "-t",
-                    "5",
-                    "-q:a",
-                    "9",
-                    "-acodec",
-                    "libmp3lame",
-                    "-y",
-                    output_path,
-                ]
-
-                process = await asyncio.create_subprocess_exec(
-                    *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-                )
-
-                await process.communicate()
-
-                if process.returncode != 0 or not os.path.exists(output_path):
-                    raise Exception("备选方案语音生成失败")
-
-                # 更新进度
-                await self._update_progress(
-                    task_id,
-                    end_progress,
-                    "使用备选方案完成语音生成",
-                    {"current_stage": "speech_generation"},
-                    progress_callback,
-                )
-
-                return output_path
-
-            except Exception as fallback_error:
-                logger.error(f"备选方案失败: {str(fallback_error)}")
-                raise Exception(
-                    f"语音生成失败: {str(e)}, 备选方案也失败: {str(fallback_error)}"
-                )
+            raise
 
     async def _sync_lips(
         self,
@@ -1018,7 +976,7 @@ class VideoProcessingService:
             data = aiohttp.FormData()
             async with aiofiles.open(video_path, "rb") as f:
                 data.add_field(
-                    "video", await f.read(), filename=os.path.basename(video_path)
+                    "face", await f.read(), filename=os.path.basename(video_path)
                 )
 
             async with aiofiles.open(audio_path, "rb") as f:
@@ -1028,7 +986,7 @@ class VideoProcessingService:
 
             data.add_field("model_type", model_type)
             data.add_field("batch_size", str(batch_size))
-            data.add_field("smooth", str(smooth))
+            data.add_field("nosmooth", str(not smooth).lower())
 
             # 更新进度
             await self._update_progress(
@@ -1041,18 +999,39 @@ class VideoProcessingService:
 
             # 发送请求
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
-                        f"{service_url}/sync_lips", data=data, timeout=timeout
-                    ) as response:
-                        if response.status != 200:
-                            error_text = await response.text()
-                            logger.error(f"唇形同步服务返回错误: {error_text}")
-                            raise Exception(f"唇形同步服务返回错误: {response.status}")
+                # 使用重试机制发送请求
+                status, result = await self._http_request_with_retry(
+                    method="POST",
+                    url=f"{service_url}/api/process",
+                    data=data,
+                    timeout=30,
+                    max_retries=3,
+                )
 
-                        # 保存结果
-                        async with aiofiles.open(output_path, "wb") as f:
-                            await f.write(await response.read())
+                if status != 200:
+                    raise Exception(f"唇形同步服务返回错误: HTTP {status}")
+
+                # 获取任务ID或结果文件名
+                result_file = result.get("result_file")
+                if not result_file:
+                    raise Exception("唇形同步服务未返回结果文件")
+
+                logger.info(f"唇形同步任务已完成，结果文件: {result_file}")
+
+                # 下载处理结果
+                status, content = await self._http_request_with_retry(
+                    method="GET",
+                    url=f"{service_url}/results/{result_file}",
+                    timeout=timeout,
+                    max_retries=2,
+                )
+
+                if status != 200:
+                    raise Exception(f"下载唇形同步结果失败: HTTP {status}")
+
+                # 保存结果
+                async with aiofiles.open(output_path, "wb") as f:
+                    await f.write(content)
 
                 logger.info(f"唇形同步成功: {output_path}")
             except Exception as e:
@@ -1072,56 +1051,8 @@ class VideoProcessingService:
 
         except Exception as e:
             logger.error(f"唇形同步失败: {str(e)}")
-
-            # 如果出错，使用简单的音视频合并作为备选方案
-            try:
-                logger.info("使用备选方案: 简单音视频合并")
-
-                # 使用ffmpeg合并视频和音频
-                cmd = [
-                    "ffmpeg",
-                    "-i",
-                    video_path,
-                    "-i",
-                    audio_path,
-                    "-c:v",
-                    "copy",
-                    "-c:a",
-                    "aac",
-                    "-map",
-                    "0:v:0",
-                    "-map",
-                    "1:a:0",
-                    "-shortest",
-                    "-y",
-                    output_path,
-                ]
-
-                process = await asyncio.create_subprocess_exec(
-                    *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-                )
-
-                await process.communicate()
-
-                if process.returncode != 0 or not os.path.exists(output_path):
-                    raise Exception("备选方案音视频合并失败")
-
-                # 更新进度
-                await self._update_progress(
-                    task_id,
-                    end_progress,
-                    "使用备选方案完成音视频合并",
-                    {"current_stage": "lip_sync"},
-                    progress_callback,
-                )
-
-                return output_path
-
-            except Exception as fallback_error:
-                logger.error(f"备选方案失败: {str(fallback_error)}")
-                raise Exception(
-                    f"唇形同步失败: {str(e)}, 备选方案也失败: {str(fallback_error)}"
-                )
+            # 如果处理失败，返回原始视频
+            return video_path
 
     async def _add_subtitles(
         self,
@@ -1373,7 +1304,7 @@ class VideoProcessingService:
         """
         # 获取配置
         config = self.configs.get("video_enhancement", {})
-        service_url = config.get("service_url", "http://realesrgan:6060")
+        service_url = config.get("service_url", "http://realesrgan:5003")
         timeout = config.get("timeout", 600)  # 超分辨率处理可能需要更长时间
 
         # 更新进度
@@ -1389,211 +1320,286 @@ class VideoProcessingService:
         enhanced_video_path = os.path.join(task_dir, f"enhanced_video.mp4")
 
         try:
-            # 检查是否使用本地处理模式
-            use_local = config.get("use_local", False)
+            # 使用HTTP API调用超分辨率服务
+            import aiohttp
+            import aiofiles
 
-            if use_local:
-                # 本地处理模式
-                # 首先提取视频帧
-                frames_dir = os.path.join(task_dir, "frames")
-                os.makedirs(frames_dir, exist_ok=True)
-
-                # 使用ffmpeg提取帧
-                extract_cmd = [
-                    "ffmpeg",
-                    "-i",
-                    video_path,
-                    "-vf",
-                    "fps=24",  # 固定帧率为24fps
-                    os.path.join(frames_dir, "frame_%05d.png"),
-                ]
-
-                extract_process = await asyncio.create_subprocess_exec(
-                    *extract_cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
+            # 准备请求数据
+            data = aiohttp.FormData()
+            async with aiofiles.open(video_path, "rb") as f:
+                data.add_field(
+                    "file", await f.read(), filename=os.path.basename(video_path)
                 )
 
-                await extract_process.communicate()
+            data.add_field("scale", str(scale))
+            data.add_field("model_name", model_name)
+            data.add_field("denoise_strength", str(denoise_strength))
+            data.add_field("fp32", "false")  # 默认使用半精度
 
-                if extract_process.returncode != 0:
-                    raise Exception("提取视频帧失败")
-
-                # 更新进度
-                await self._update_progress(
-                    task_id,
-                    start_progress + (end_progress - start_progress) * 0.2,
-                    "正在对视频帧进行超分辨率处理",
-                    {"current_stage": "resolution_enhancement"},
-                    progress_callback,
-                )
-
-                # 创建输出目录
-                enhanced_frames_dir = os.path.join(task_dir, "enhanced_frames")
-                os.makedirs(enhanced_frames_dir, exist_ok=True)
-
-                # 获取所有帧
-                frames = sorted(os.listdir(frames_dir))
-                total_frames = len(frames)
-
-                # 使用Real-ESRGAN处理每一帧
-                for i, frame in enumerate(frames):
-                    frame_path = os.path.join(frames_dir, frame)
-                    output_path = os.path.join(enhanced_frames_dir, frame)
-
-                    # 构建Real-ESRGAN命令
-                    enhance_cmd = [
-                        "python",
-                        "-m",
-                        "realesrgan.inference_realesrgan",
-                        "-i",
-                        frame_path,
-                        "-o",
-                        output_path,
-                        "-n",
-                        model_name,
-                        "-s",
-                        str(scale),
-                        "--face_enhance",  # 启用面部增强
-                        "--fp32",  # 使用FP32精度
-                        "--denoise_strength",
-                        str(denoise_strength),
-                    ]
-
-                    enhance_process = await asyncio.create_subprocess_exec(
-                        *enhance_cmd,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                    )
-
-                    await enhance_process.communicate()
-
-                    if enhance_process.returncode != 0:
-                        raise Exception(f"处理帧 {frame} 失败")
-
-                    # 更新进度
-                    current_progress = start_progress + (
-                        end_progress - start_progress
-                    ) * (0.2 + 0.6 * (i / total_frames))
-                    await self._update_progress(
-                        task_id,
-                        current_progress,
-                        f"正在处理视频帧 {i+1}/{total_frames}",
-                        {"current_stage": "resolution_enhancement"},
-                        progress_callback,
-                    )
-
-                # 更新进度
-                await self._update_progress(
-                    task_id,
-                    start_progress + (end_progress - start_progress) * 0.8,
-                    "正在合成增强后的视频",
-                    {"current_stage": "resolution_enhancement"},
-                    progress_callback,
-                )
-
-                # 提取原始视频的音频
-                audio_path = os.path.join(task_dir, "audio.wav")
-                extract_audio_cmd = [
-                    "ffmpeg",
-                    "-i",
-                    video_path,
-                    "-vn",
-                    "-acodec",
-                    "pcm_s16le",
-                    "-ar",
-                    "44100",
-                    "-ac",
-                    "2",
-                    audio_path,
-                ]
-
-                audio_process = await asyncio.create_subprocess_exec(
-                    *extract_audio_cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-
-                await audio_process.communicate()
-
-                # 使用ffmpeg合成视频
-                compose_cmd = [
-                    "ffmpeg",
-                    "-framerate",
-                    "24",  # 与提取时相同的帧率
-                    "-i",
-                    os.path.join(enhanced_frames_dir, "frame_%05d.png"),
-                    "-i",
-                    audio_path,
-                    "-c:v",
-                    "libx264",
-                    "-crf",
-                    "18",  # 高质量编码
-                    "-preset",
-                    "medium",  # 平衡编码速度和质量
-                    "-c:a",
-                    "aac",
-                    "-b:a",
-                    "192k",
-                    "-shortest",
-                    enhanced_video_path,
-                ]
-
-                compose_process = await asyncio.create_subprocess_exec(
-                    *compose_cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-
-                await compose_process.communicate()
-
-                if compose_process.returncode != 0:
-                    raise Exception("合成增强视频失败")
-
-                # 清理临时文件
-                import shutil
-
-                shutil.rmtree(frames_dir, ignore_errors=True)
-                shutil.rmtree(enhanced_frames_dir, ignore_errors=True)
-                os.remove(audio_path)
-            else:
-                # 使用API服务处理
-                # 准备请求数据
-                files = {"video": open(video_path, "rb")}
-                data = {
-                    "scale": str(scale),
-                    "model_name": model_name,
-                    "denoise_strength": str(denoise_strength),
-                    "task_id": task_id,
-                }
-
-                # 发送请求到Real-ESRGAN服务
+            # 发送请求
+            try:
                 async with aiohttp.ClientSession() as session:
                     async with session.post(
-                        f"{service_url}/enhance_video",
-                        data=data,
-                        files=files,
-                        timeout=timeout,
+                        f"{service_url}/api/enhance/video", data=data, timeout=30
                     ) as response:
                         if response.status != 200:
                             error_text = await response.text()
-                            raise Exception(f"API请求失败: {error_text}")
+                            logger.error(f"超分辨率服务返回错误: {error_text}")
+                            raise Exception(f"超分辨率服务返回错误: {response.status}")
 
-                        # 保存响应的视频
-                        with open(enhanced_video_path, "wb") as f:
-                            f.write(await response.read())
+                        # 获取任务ID
+                        result = await response.json()
+                        remote_task_id = result.get("task_id")
+
+                        if not remote_task_id:
+                            raise Exception("超分辨率服务未返回任务ID")
+
+                        logger.info(f"超分辨率任务已提交: {remote_task_id}")
+
+                        # 轮询任务状态
+                        status_result = await self.poll_task_status(
+                            service_name="resolution_enhancement",
+                            service_url=service_url,
+                            task_id=remote_task_id,
+                            local_task_id=task_id,
+                            poll_interval=5.0,
+                            timeout=timeout,
+                            progress_callback=progress_callback,
+                            start_progress=start_progress
+                            + (end_progress - start_progress) * 0.1,
+                            end_progress=end_progress
+                            - (end_progress - start_progress) * 0.1,
+                        )
+
+                        # 检查任务是否成功
+                        if status_result.get("status") != "completed":
+                            error_message = status_result.get("message", "未知错误")
+                            logger.error(f"超分辨率任务失败: {error_message}")
+                            raise Exception(f"超分辨率任务失败: {error_message}")
+
+                        # 下载处理结果
+                        async with session.get(
+                            f"{service_url}/api/download/{remote_task_id}",
+                            timeout=timeout,
+                        ) as download_response:
+                            if download_response.status != 200:
+                                error_text = await download_response.text()
+                                logger.error(f"下载超分辨率结果失败: {error_text}")
+                                raise Exception(
+                                    f"下载超分辨率结果失败: {download_response.status}"
+                                )
+
+                            # 保存结果
+                            async with aiofiles.open(enhanced_video_path, "wb") as f:
+                                await f.write(await download_response.read())
+
+                        # 清理远程任务
+                        try:
+                            async with session.delete(
+                                f"{service_url}/api/task/{remote_task_id}", timeout=10
+                            ) as delete_response:
+                                if delete_response.status != 200:
+                                    logger.warning(
+                                        f"清理超分辨率任务失败: {remote_task_id}"
+                                    )
+                        except Exception as e:
+                            logger.warning(f"清理超分辨率任务出错: {str(e)}")
+
+                logger.info(f"超分辨率处理成功: {enhanced_video_path}")
+            except Exception as e:
+                logger.error(f"调用超分辨率服务失败: {str(e)}")
+                raise
 
             # 更新进度
             await self._update_progress(
                 task_id,
                 end_progress,
-                "视频超分辨率处理完成",
+                "超分辨率处理完成",
                 {"current_stage": "resolution_enhancement"},
                 progress_callback,
             )
 
             return enhanced_video_path
+
         except Exception as e:
-            logger.error(f"视频超分辨率处理失败: {str(e)}")
+            logger.error(f"超分辨率处理失败: {str(e)}")
             # 如果处理失败，返回原始视频
             return video_path
+
+    async def query_task_status(
+        self, service_name: str, service_url: str, task_id: str
+    ) -> Dict[str, Any]:
+        """
+        查询AI组件的任务状态
+
+        Args:
+            service_name: 服务名称
+            service_url: 服务URL
+            task_id: 任务ID
+
+        Returns:
+            任务状态信息
+        """
+        try:
+            import aiohttp
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{service_url}/api/task/{task_id}", timeout=10
+                ) as response:
+                    if response.status != 200:
+                        logger.warning(
+                            f"查询{service_name}任务状态失败: HTTP {response.status}"
+                        )
+                        return {
+                            "status": "unknown",
+                            "progress": 0,
+                            "message": f"查询状态失败: HTTP {response.status}",
+                        }
+
+                    result = await response.json()
+                    return result
+        except Exception as e:
+            logger.warning(f"查询{service_name}任务状态出错: {str(e)}")
+            return {
+                "status": "unknown",
+                "progress": 0,
+                "message": f"查询状态出错: {str(e)}",
+            }
+
+    async def poll_task_status(
+        self,
+        service_name: str,
+        service_url: str,
+        task_id: str,
+        local_task_id: str,
+        poll_interval: float = 2.0,
+        timeout: float = 600.0,
+        progress_callback: Optional[
+            Callable[[str, int, str, Dict[str, Any]], None]
+        ] = None,
+        start_progress: float = 0,
+        end_progress: float = 100,
+    ) -> Dict[str, Any]:
+        """
+        轮询AI组件的任务状态，直到任务完成或超时
+
+        Args:
+            service_name: 服务名称
+            service_url: 服务URL
+            task_id: 任务ID
+            local_task_id: 本地任务ID
+            poll_interval: 轮询间隔（秒）
+            timeout: 超时时间（秒）
+            progress_callback: 进度回调函数
+            start_progress: 起始进度百分比
+            end_progress: 结束进度百分比
+
+        Returns:
+            任务最终状态
+        """
+        start_time = time.time()
+        last_progress = -1
+
+        while True:
+            # 检查是否超时
+            elapsed = time.time() - start_time
+            if elapsed > timeout:
+                logger.warning(f"{service_name}任务{task_id}查询超时")
+                return {
+                    "status": "timeout",
+                    "progress": 0,
+                    "message": f"任务查询超时（{timeout}秒）",
+                }
+
+            # 查询任务状态
+            status_info = await self.query_task_status(
+                service_name, service_url, task_id
+            )
+
+            # 计算进度
+            status = status_info.get("status", "unknown")
+            progress = status_info.get("progress", 0)
+            message = status_info.get("message", "")
+
+            # 映射进度到指定范围
+            mapped_progress = int(
+                start_progress + (end_progress - start_progress) * progress / 100
+            )
+
+            # 如果进度有变化，更新任务状态
+            if mapped_progress != last_progress:
+                last_progress = mapped_progress
+                if progress_callback:
+                    current_stage = {"current_stage": service_name}
+                    await progress_callback(
+                        local_task_id, mapped_progress, message, current_stage
+                    )
+
+            # 检查任务是否完成
+            if status in ["completed", "failed", "error"]:
+                return status_info
+
+            # 等待下一次轮询
+            await asyncio.sleep(poll_interval)
+
+    async def _http_request_with_retry(
+        self,
+        method: str,
+        url: str,
+        data: Any = None,
+        headers: Dict[str, str] = None,
+        timeout: float = 60.0,
+        max_retries: int = 3,
+        retry_delay: float = 1.0,
+    ) -> Tuple[int, Any]:
+        """
+        发送HTTP请求，支持重试机制
+
+        Args:
+            method: 请求方法（GET, POST, PUT, DELETE等）
+            url: 请求URL
+            data: 请求数据
+            headers: 请求头
+            timeout: 超时时间（秒）
+            max_retries: 最大重试次数
+            retry_delay: 重试延迟（秒）
+
+        Returns:
+            (状态码, 响应内容)
+        """
+        import aiohttp
+
+        retries = 0
+        last_error = None
+
+        while retries <= max_retries:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    request_method = getattr(session, method.lower())
+
+                    async with request_method(
+                        url, data=data, headers=headers, timeout=timeout
+                    ) as response:
+                        if response.content_type == "application/json":
+                            content = await response.json()
+                        else:
+                            content = await response.read()
+
+                        return response.status, content
+            except Exception as e:
+                last_error = e
+                retries += 1
+
+                if retries <= max_retries:
+                    # 使用指数退避策略
+                    wait_time = retry_delay * (2 ** (retries - 1))
+                    logger.warning(
+                        f"HTTP请求失败，将在{wait_time:.2f}秒后重试: {str(e)}"
+                    )
+                    await asyncio.sleep(wait_time)
+                else:
+                    logger.error(f"HTTP请求失败，已达到最大重试次数: {str(e)}")
+
+        # 所有重试都失败
+        raise Exception(f"HTTP请求失败，已重试{max_retries}次: {str(last_error)}")

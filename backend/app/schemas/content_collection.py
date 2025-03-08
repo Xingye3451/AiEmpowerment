@@ -54,7 +54,7 @@ class CollectedVideoInDB(CollectedVideoBase):
     updated_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class CollectedVideoResponse(CollectedVideoInDB):
@@ -99,7 +99,7 @@ class CollectionTaskResponse(CollectionTaskBase):
     completed_at: Optional[datetime] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class CollectedContentBase(BaseModel):
@@ -135,7 +135,7 @@ class CollectedContentResponse(CollectedContentBase):
     updated_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class CollectionTaskListResponse(BaseModel):
@@ -175,7 +175,7 @@ class ContentTagInDB(ContentTagBase):
     updated_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class ContentTagResponse(ContentTagInDB):

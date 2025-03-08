@@ -45,7 +45,7 @@ class TaskInDB(TaskBase):
     last_retry_at: Optional[datetime] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class TaskResponse(TaskInDB):
