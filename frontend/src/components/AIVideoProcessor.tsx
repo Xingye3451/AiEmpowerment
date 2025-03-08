@@ -1103,242 +1103,244 @@ const AIVideoProcessor: React.FC = () => {
             </Col>
             
             <Col xs={24} md={12}>
-              <Card 
-                title="音频处理" 
-                size="small" 
-                className="option-card"
-                style={{ height: '100%' }}
-              >
-                <div style={{ marginBottom: 16 }}>
-                  <Space>
-                    <Switch
-                      checked={extractVoice}
-                      onChange={(checked) => setExtractVoice(checked)}
-                      disabled={isProcessing}
-                    />
-                    <span>提取音色</span>
-                    <Tooltip title="从视频中提取人物音色，用于后续语音合成">
-                      <InfoCircleOutlined style={{ color: '#1890ff' }} />
-                    </Tooltip>
-                  </Space>
-                </div>
-                
-                <div style={{ marginBottom: 16 }}>
-                  <Space>
-                    <Switch
-                      checked={generateSpeech}
-                      onChange={(checked) => {
-                        setGenerateSpeech(checked);
-                        if (checked && !extractVoice) {
-                          setExtractVoice(true);
-                        }
-                      }}
-                      disabled={isProcessing}
-                    />
-                    <span>生成语音</span>
-                    <Tooltip title="使用提取的音色生成新的语音">
-                      <InfoCircleOutlined style={{ color: '#1890ff' }} />
-                    </Tooltip>
-                  </Space>
-                </div>
-                
-                {generateSpeech && (
-                  <div style={{ marginLeft: 24, marginBottom: 16 }}>
-                    <div style={{ marginBottom: 8 }}>
-                      <Text strong>语音文本: <span style={{ color: '#ff4d4f' }}>*</span></Text>
-                      <Tooltip title="输入要生成的语音文本（必填）">
-                        <InfoCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
-                      </Tooltip>
+              <Row gutter={[0, 24]}>
+                <Col span={24}>
+                  <Card 
+                    title="音频处理" 
+                    size="small" 
+                    className="option-card"
+                  >
+                    <div style={{ marginBottom: 16 }}>
+                      <Space>
+                        <Switch
+                          checked={extractVoice}
+                          onChange={(checked) => setExtractVoice(checked)}
+                          disabled={isProcessing}
+                        />
+                        <span>提取音色</span>
+                        <Tooltip title="从视频中提取人物音色，用于后续语音合成">
+                          <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                        </Tooltip>
+                      </Space>
                     </div>
-                    <TextArea
-                      rows={4}
-                      value={voiceText}
-                      onChange={(e) => setVoiceText(e.target.value)}
-                      placeholder="请在此输入要生成的语音文本，这将用于语音合成和唇形同步"
-                      disabled={isProcessing}
-                      style={{ borderColor: !voiceText ? '#ff4d4f' : undefined }}
-                      status={!voiceText ? 'error' : undefined}
-                    />
-                    {!voiceText && (
-                      <div style={{ color: '#ff4d4f', fontSize: '12px', marginTop: '4px' }}>
-                        请输入语音文本，这是生成语音和唇形同步所必需的
+                    
+                    <div style={{ marginBottom: 16 }}>
+                      <Space>
+                        <Switch
+                          checked={generateSpeech}
+                          onChange={(checked) => {
+                            setGenerateSpeech(checked);
+                            if (checked && !extractVoice) {
+                              setExtractVoice(true);
+                            }
+                          }}
+                          disabled={isProcessing}
+                        />
+                        <span>生成语音</span>
+                        <Tooltip title="使用提取的音色生成新的语音">
+                          <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                        </Tooltip>
+                      </Space>
+                    </div>
+                    
+                    {generateSpeech && (
+                      <div style={{ marginLeft: 24, marginBottom: 16 }}>
+                        <div style={{ marginBottom: 8 }}>
+                          <Text strong>语音文本: <span style={{ color: '#ff4d4f' }}>*</span></Text>
+                          <Tooltip title="输入要生成的语音文本（必填）">
+                            <InfoCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                          </Tooltip>
+                        </div>
+                        <TextArea
+                          rows={4}
+                          value={voiceText}
+                          onChange={(e) => setVoiceText(e.target.value)}
+                          placeholder="请在此输入要生成的语音文本，这将用于语音合成和唇形同步"
+                          disabled={isProcessing}
+                          style={{ borderColor: !voiceText ? '#ff4d4f' : undefined }}
+                          status={!voiceText ? 'error' : undefined}
+                        />
+                        {!voiceText && (
+                          <div style={{ color: '#ff4d4f', fontSize: '12px', marginTop: '4px' }}>
+                            请输入语音文本，这是生成语音和唇形同步所必需的
+                          </div>
+                        )}
                       </div>
                     )}
-                  </div>
-                )}
-                
-                <div style={{ marginBottom: 16 }}>
-                  <Space>
-                    <Switch
-                      checked={lipSync}
-                      onChange={(checked) => {
-                        setLipSync(checked);
-                        if (checked) {
-                          if (!removeSubtitles) {
-                            setRemoveSubtitles(true);
-                          }
-                          if (!generateSpeech) {
-                            setGenerateSpeech(true);
-                          }
-                          if (!extractVoice) {
-                            setExtractVoice(true);
-                          }
-                        }
-                      }}
-                      disabled={isProcessing}
-                    />
-                    <span>唇形同步</span>
-                    <Tooltip title="使生成的语音与视频中人物的唇形同步">
-                      <InfoCircleOutlined style={{ color: '#1890ff' }} />
-                    </Tooltip>
-                  </Space>
-                </div>
-                
-                {lipSync && (
-                  <div style={{ marginLeft: 24 }}>
-                    <Alert
-                      message="唇形同步需要同时开启字幕擦除、音色提取和语音生成"
-                      type="info"
-                      showIcon
-                      style={{ marginBottom: 16 }}
-                    />
-                  </div>
-                )}
-              </Card>
-            </Col>
-            
-            <Col xs={24} md={12}>
-              <Card 
-                title="视频超分辨率" 
-                size="small" 
-                className="option-card"
-                style={{ height: '100%' }}
-                extra={
-                  <Tag color={resolutionEnhancementAvailable ? "success" : "error"}>
-                    {resolutionEnhancementAvailable ? "服务可用" : "服务不可用"}
-                  </Tag>
-                }
-              >
-                <div style={{ marginBottom: 16 }}>
-                  <Space>
-                    <Switch
-                      checked={enhanceResolution}
-                      onChange={(checked) => setEnhanceResolution(checked)}
-                      disabled={isProcessing || !resolutionEnhancementAvailable}
-                    />
-                    <span>启用视频超分辨率</span>
-                    <Tooltip title="使用AI技术提高视频分辨率和清晰度">
-                      <InfoCircleOutlined style={{ color: '#1890ff' }} />
-                    </Tooltip>
-                  </Space>
-                </div>
-                
-                {enhanceResolution && (
-                  <div style={{ marginLeft: 24 }}>
-                    <Form layout="vertical">
-                      <Row gutter={16}>
-                        <Col span={12}>
-                          <Form.Item 
-                            label={
-                              <Space>
-                                <span>放大倍数</span>
-                                <Tooltip title="设置视频放大的倍数">
-                                  <InfoCircleOutlined style={{ color: '#1890ff' }} />
-                                </Tooltip>
-                              </Space>
+                    
+                    <div style={{ marginBottom: 16 }}>
+                      <Space>
+                        <Switch
+                          checked={lipSync}
+                          onChange={(checked) => {
+                            setLipSync(checked);
+                            if (checked) {
+                              if (!removeSubtitles) {
+                                setRemoveSubtitles(true);
+                              }
+                              if (!generateSpeech) {
+                                setGenerateSpeech(true);
+                              }
+                              if (!extractVoice) {
+                                setExtractVoice(true);
+                              }
                             }
-                          >
-                            <Select
-                              value={resolutionScale}
-                              onChange={(value) => setResolutionScale(value)}
-                              disabled={isProcessing}
-                              style={{ width: '100%' }}
-                              options={[
-                                { value: 2, label: '2倍' },
-                                { value: 3, label: '3倍' },
-                                { value: 4, label: '4倍' }
-                              ]}
-                            />
-                          </Form.Item>
-                        </Col>
-                        
-                        <Col span={12}>
-                          <Form.Item 
-                            label={
-                              <Space>
-                                <span>模型选择</span>
-                                <Tooltip title="选择不同的超分辨率模型">
-                                  <InfoCircleOutlined style={{ color: '#1890ff' }} />
-                                </Tooltip>
-                              </Space>
+                          }}
+                          disabled={isProcessing}
+                        />
+                        <span>唇形同步</span>
+                        <Tooltip title="使生成的语音与视频中人物的唇形同步">
+                          <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                        </Tooltip>
+                      </Space>
+                    </div>
+                    
+                    {lipSync && (
+                      <div style={{ marginLeft: 24 }}>
+                        <Alert
+                          message="唇形同步需要同时开启字幕擦除、音色提取和语音生成"
+                          type="info"
+                          showIcon
+                          style={{ marginBottom: 16 }}
+                        />
+                      </div>
+                    )}
+                  </Card>
+                </Col>
+                
+                <Col span={24}>
+                  <Card 
+                    title="视频超分辨率" 
+                    size="small" 
+                    className="option-card"
+                    extra={
+                      <Tag color={resolutionEnhancementAvailable ? "success" : "error"}>
+                        {resolutionEnhancementAvailable ? "服务可用" : "服务不可用"}
+                      </Tag>
+                    }
+                  >
+                    <div style={{ marginBottom: 16 }}>
+                      <Space>
+                        <Switch
+                          checked={enhanceResolution}
+                          onChange={(checked) => setEnhanceResolution(checked)}
+                          disabled={isProcessing || !resolutionEnhancementAvailable}
+                        />
+                        <span>启用视频超分辨率</span>
+                        <Tooltip title="使用AI技术提高视频分辨率和清晰度">
+                          <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                        </Tooltip>
+                      </Space>
+                    </div>
+                    
+                    {enhanceResolution && (
+                      <div style={{ marginLeft: 24 }}>
+                        <Form layout="vertical">
+                          <Row gutter={16}>
+                            <Col span={12}>
+                              <Form.Item 
+                                label={
+                                  <Space>
+                                    <span>放大倍数</span>
+                                    <Tooltip title="设置视频放大的倍数">
+                                      <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                                    </Tooltip>
+                                  </Space>
+                                }
+                              >
+                                <Select
+                                  value={resolutionScale}
+                                  onChange={(value) => setResolutionScale(value)}
+                                  disabled={isProcessing}
+                                  style={{ width: '100%' }}
+                                  options={[
+                                    { value: 2, label: '2倍' },
+                                    { value: 3, label: '3倍' },
+                                    { value: 4, label: '4倍' }
+                                  ]}
+                                />
+                              </Form.Item>
+                            </Col>
+                            
+                            <Col span={12}>
+                              <Form.Item 
+                                label={
+                                  <Space>
+                                    <span>模型选择</span>
+                                    <Tooltip title="选择不同的超分辨率模型">
+                                      <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                                    </Tooltip>
+                                  </Space>
+                                }
+                              >
+                                <Select
+                                  value={resolutionModel}
+                                  onChange={(value) => setResolutionModel(value)}
+                                  disabled={isProcessing}
+                                  style={{ width: '100%' }}
+                                  options={[
+                                    { value: 'realesrgan-x4plus', label: '通用模型 (推荐)' },
+                                    { value: 'realesrgan-x4plus-anime', label: '动漫模型' },
+                                    { value: 'realesrgan-x2plus', label: '2倍通用模型' }
+                                  ].filter(option => availableModels.includes(option.value))}
+                                />
+                              </Form.Item>
+                            </Col>
+                            
+                            <Col span={24}>
+                              <Form.Item 
+                                label={
+                                  <Space>
+                                    <span>降噪强度</span>
+                                    <Tooltip title="调整降噪强度，值越大降噪效果越强">
+                                      <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                                    </Tooltip>
+                                  </Space>
+                                }
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center' }}>
+                                  <InputNumber
+                                    min={0}
+                                    max={1}
+                                    step={0.1}
+                                    value={denoiseStrength}
+                                    onChange={(value) => setDenoiseStrength(value as number)}
+                                    disabled={isProcessing}
+                                    style={{ width: '100%' }}
+                                  />
+                                </div>
+                              </Form.Item>
+                            </Col>
+                          </Row>
+                          
+                          <Alert
+                            message="超分辨率处理说明"
+                            description={
+                              <ul style={{ paddingLeft: '20px', margin: '8px 0' }}>
+                                <li>处理时间取决于视频长度和分辨率，可能需要较长时间</li>
+                                <li>通用模型适合真实视频，动漫模型适合动画内容</li>
+                                <li>降噪强度建议值：0.5（平衡降噪和细节保留）</li>
+                                <li>超分辨率处理会在添加字幕之前进行，以保证字幕清晰度</li>
+                              </ul>
                             }
-                          >
-                            <Select
-                              value={resolutionModel}
-                              onChange={(value) => setResolutionModel(value)}
-                              disabled={isProcessing}
-                              style={{ width: '100%' }}
-                              options={[
-                                { value: 'realesrgan-x4plus', label: '通用模型 (推荐)' },
-                                { value: 'realesrgan-x4plus-anime', label: '动漫模型' },
-                                { value: 'realesrgan-x2plus', label: '2倍通用模型' }
-                              ].filter(option => availableModels.includes(option.value))}
-                            />
-                          </Form.Item>
-                        </Col>
-                        
-                        <Col span={24}>
-                          <Form.Item 
-                            label={
-                              <Space>
-                                <span>降噪强度</span>
-                                <Tooltip title="调整降噪强度，值越大降噪效果越强">
-                                  <InfoCircleOutlined style={{ color: '#1890ff' }} />
-                                </Tooltip>
-                              </Space>
-                            }
-                          >
-                            <div style={{ display: 'flex', alignItems: 'center' }}>
-                              <InputNumber
-                                min={0}
-                                max={1}
-                                step={0.1}
-                                value={denoiseStrength}
-                                onChange={(value) => setDenoiseStrength(value as number)}
-                                disabled={isProcessing}
-                                style={{ width: '100%' }}
-                              />
-                            </div>
-                          </Form.Item>
-                        </Col>
-                      </Row>
-                      
+                            type="info"
+                            showIcon
+                          />
+                        </Form>
+                      </div>
+                    )}
+                    
+                    {!resolutionEnhancementAvailable && (
                       <Alert
-                        message="超分辨率处理说明"
-                        description={
-                          <ul style={{ paddingLeft: '20px', margin: '8px 0' }}>
-                            <li>处理时间取决于视频长度和分辨率，可能需要较长时间</li>
-                            <li>通用模型适合真实视频，动漫模型适合动画内容</li>
-                            <li>降噪强度建议值：0.5（平衡降噪和细节保留）</li>
-                            <li>超分辨率处理会在添加字幕之前进行，以保证字幕清晰度</li>
-                          </ul>
-                        }
-                        type="info"
+                        message="超分辨率服务不可用"
+                        description="请联系管理员启用超分辨率服务"
+                        type="warning"
                         showIcon
                       />
-                    </Form>
-                  </div>
-                )}
-                
-                {!resolutionEnhancementAvailable && (
-                  <Alert
-                    message="超分辨率服务不可用"
-                    description="请联系管理员启用超分辨率服务"
-                    type="warning"
-                    showIcon
-                  />
-                )}
-              </Card>
+                    )}
+                  </Card>
+                </Col>
+              </Row>
             </Col>
           </Row>
         </div>

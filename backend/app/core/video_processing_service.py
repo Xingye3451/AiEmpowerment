@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.models.ai_config import AIServiceConfig, SystemConfig
-from app.db.session import async_session
+from app.db.database import async_session
 
 logger = logging.getLogger(__name__)
 
