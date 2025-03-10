@@ -51,6 +51,11 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    depends_on:
+      - realesrgan
+      - video-subtitle-remover
+      - vall-e-x
+      - wav2lip
 
   frontend:
     build: 
@@ -86,6 +91,140 @@ services:
       retries: 3
     depends_on:
       - backend
+
+  # AI组件服务
+  realesrgan:
+    build:
+      context: ./ai_components/Real-ESRGAN
+      dockerfile: Dockerfile.standalone
+    image: aiempowerment-realesrgan:latest
+    container_name: realesrgan
+    restart: unless-stopped
+    ports:
+      - "5003:5003"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./static:/app/static
+      - ./data:/app/data
+      - ./ai_components/Real-ESRGAN/weights:/app/weights
+    environment: &ai_env
+      - UPLOAD_DIR=/app/uploads
+      - OUTPUT_DIR=/app/uploads/processed
+      - TEMP_DIR=/app/uploads/temp
+      - DATA_DIR=/app/data
+      - CUDA_VISIBLE_DEVICES=0
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5003/status"]
+      interval: 30s
+      timeout: 10s
+      start-period: 60s
+      retries: 3
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities:
+                - gpu
+
+  video-subtitle-remover:
+    build:
+      context: ./ai_components/video-subtitle-remover
+      dockerfile: Dockerfile.standalone
+    image: aiempowerment-video-subtitle-remover:latest
+    container_name: video-subtitle-remover
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./static:/app/static
+      - ./data:/app/data
+    environment: *ai_env
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/status"]
+      interval: 30s
+      timeout: 10s
+      start-period: 60s
+      retries: 3
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities:
+                - gpu
+
+  vall-e-x:
+    build:
+      context: ./ai_components/VALL-E-X
+      dockerfile: Dockerfile.standalone
+    image: aiempowerment-vall-e-x:latest
+    container_name: vall-e-x
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./static:/app/static
+      - ./data:/app/data
+      - ./ai_components/VALL-E-X/checkpoints:/app/checkpoints
+      - ./ai_components/VALL-E-X/customs:/app/customs
+    environment: *ai_env
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "/app/healthcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      start-period: 60s
+      retries: 3
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities:
+                - gpu
+
+  wav2lip:
+    build:
+      context: ./ai_components/Wav2Lip
+      dockerfile: Dockerfile.standalone
+    image: aiempowerment-wav2lip:latest
+    container_name: wav2lip
+    restart: unless-stopped
+    ports:
+      - "5002:5002"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./static:/app/static
+      - ./data:/app/data
+      - ./ai_components/Wav2Lip/checkpoints:/app/checkpoints
+    environment: *ai_env
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5002/status"]
+      interval: 30s
+      timeout: 10s
+      start-period: 60s
+      retries: 3
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities:
+                - gpu
 
   # 开发环境服务
   frontend-dev:

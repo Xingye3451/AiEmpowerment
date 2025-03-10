@@ -54,7 +54,8 @@ backend/static/previews/*
 
 # AI组件目录 - 包含大型模型文件和依赖项
 ai_components/
-
+# 测试文件
+tests/*
 # Logs
 frontend/logs/*
 *.log
